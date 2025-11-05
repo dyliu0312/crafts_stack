@@ -2,16 +2,19 @@
 Analytical models for the halo fitting.
 
 This module contains the definitions of the analytical models, implemented as classes that inherit from `astropy.modeling.Fittable2DModel`.
-
-Currently included models are:
+Currently included signal models are:
 - `NFW2D`: Elliptical 2D NFW profile.
 - `Lorentz2D`: Elliptical 2D Lorentzian profile.
 - `Gaussian2D`: 2D Gaussian profile.
 
+Background models are:
+- `Const2D`: Constant background model.
+- `Polynomial2D`: Polynomial background model.
 """
 
 import numpy as np
 from astropy.modeling import Fittable2DModel, Parameter, models
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 
 class NFW2D(Fittable2DModel):
@@ -113,3 +116,122 @@ def get_model(model_name: str):
             f"Choose from {list(AVAILABLE_MODELS.keys())}"
         )
     return AVAILABLE_MODELS[model_name]
+
+
+# Dictionary of available background models
+AVAILABLE_BACKGROUNDS = {
+    "const": models.Const2D,
+    "poly": models.Polynomial2D,
+}
+
+
+def get_background_model(model_name: str):
+    """
+    Get a background model class by its name.
+    """
+    model_name = model_name.lower()
+    if model_name not in AVAILABLE_BACKGROUNDS:
+        raise ValueError(
+            f"Background model '{model_name}' not available. "
+            f"Choose from {list(AVAILABLE_BACKGROUNDS.keys())}"
+        )
+    return AVAILABLE_BACKGROUNDS[model_name]
+
+
+def build_model(
+    model_name: Literal['nfw', 'gaussian', 'lorentz'] = "nfw",
+    background_name: Literal['const', 'poly'] = "const",
+    init_h1: Optional[Dict[str, float]] = None,
+    init_h2: Optional[Dict[str, float]] = None,
+    init_bg: Optional[Dict[str, Any]] = None,
+    bounds: Optional[Dict[str, Tuple[Union[float, None], Union[float, None]]]] = None,
+    constraints: Optional[Dict[str, Union[List[str], List[Tuple[str, str]]]]] = None,
+):
+    """
+    Construct a compound model with two halo profiles and a background.
+
+    Parameters
+    ----------
+    model_name : str, optional
+        Name of the halo model to use, by default "nfw"
+    background_name : str, optional
+        Name of the background model to use, by default "const"
+    init_h1, init_h2 : dict, optional
+        Initial parameters for the first halo profile, the second halo profile, and the constant background, by default None to use defaults based on model_name. The defaults are:
+        - nfw: {"amplitude": 50, "r_s": 0.5, "ellipticity": 0, "theta": 0}
+        - gaussian: {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
+        - lorentz: {"amplitude": 50, "fwhm": 1.0, "ellipticity": 0, "theta": 0}
+        - other: {"amplitude": 50}
+    init_bg : dict, optional
+        Initial parameters for the background model, by default None to use defaults based on background_name.
+        - const: {"amplitude": 0}
+        - poly: {"degree": 2, "x_domain": (-3, 3), "y_domain": (-3, 3)}
+    bounds : dict, optional
+        Bounds for parameters in format {param_name: (min, max)}. By default None
+    constraints : dict, optional
+        Parameter constraints for the model, by default None. Currently supports:
+        - "fixed": list of parameter names to fix
+        - "tied": list of tuples (target_param, source_param) to tie parameters
+
+    Returns
+    -------
+    astropy.modeling.CompoundModel
+        Compound model with two halo profiles and a background
+    """
+    model_class = get_model(model_name)
+    background_class = get_background_model(background_name)
+
+    # Set default initial parameters based on model type
+    if model_name == "nfw":
+        default_init = {"amplitude": 50, "r_s": 0.5, "ellipticity": 0, "theta": 0}
+    elif model_name == "gaussian":
+        default_init = {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
+    elif model_name == "lorentz":
+        default_init = {"amplitude": 50, "fwhm": 1.0, "ellipticity": 0, "theta": 0}
+    else:
+        default_init = {"amplitude": 50}
+
+    h1_init = default_init.copy()
+    h1_init.update({"x_mean": -1, "y_mean": 0})
+    if init_h1 is not None:
+        h1_init.update(init_h1)  # pyright: ignore[reportArgumentType, reportCallIssue]
+
+    h2_init = default_init.copy()
+    h2_init.update({"x_mean": 1, "y_mean": 0})
+    if init_h2 is not None:
+        h2_init.update(init_h2)  # pyright: ignore[reportArgumentType, reportCallIssue]
+
+    if init_bg is None:
+        if background_name == "const":
+            init_bg = {"amplitude": 0}
+        elif background_name == "poly":
+            init_bg = {"degree": 2, "x_domain": (-3, 3), "y_domain": (-3, 3)}
+
+    # create independent submodels
+    h1 = model_class(**h1_init)
+    h2 = model_class(**h2_init)
+    bg = background_class(**init_bg)  # pyright: ignore[reportCallIssue]
+
+    model = h1 + h2 + bg
+
+    # Apply parameter bounds (if provided)
+    if bounds:
+        for name, bound in bounds.items():
+            if hasattr(model, name):
+                getattr(model, name).bounds = bound
+
+    if constraints:
+        if "fixed" in constraints:
+            for param_name in constraints["fixed"]:
+                if hasattr(model, param_name):  # pyright: ignore[reportArgumentType]
+                    getattr(model, param_name).fixed = True  # pyright: ignore[reportArgumentType]
+        if "tied" in constraints:
+            for target_param, source_param in constraints["tied"]:
+                if hasattr(model, target_param) and hasattr(model, source_param):
+
+                    def make_tie_func(source):
+                        return lambda m: getattr(m, source)
+
+                    getattr(model, target_param).tied = make_tie_func(source_param)
+
+    return model
