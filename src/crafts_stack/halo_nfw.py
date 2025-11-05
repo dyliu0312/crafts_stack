@@ -1,9 +1,10 @@
+from typing import Any, List, Mapping, Optional, Tuple, Union
 import warnings
 
 import numpy as np
 from astropy.modeling import Fittable2DModel, Parameter, fitting, models
 from astropy.utils.exceptions import AstropyUserWarning
-from mytools.halo_new import get_coord
+from mytools.halo_new import get_coord, info_fitness
 
 
 class NFW2D(Fittable2DModel):
@@ -49,13 +50,36 @@ class NFW2D(Fittable2DModel):
 
 
 def build_model(
-    init_h1=None,
-    init_h2=None,
-    init_const=None,
-    bounds=None,
-    constraints=None,
+    init_h1: Optional[Mapping[str, float]] = None,
+    init_h2: Optional[Mapping[str, float]] = None,
+    init_const: Optional[Mapping[str, float]] = None,
+    bounds: Optional[
+        Mapping[str, Tuple[Union[float, None], Union[float, None]]]
+    ] = None,
+    constraints: Optional[Mapping[str, Union[List[str], List[Tuple[str, str]]]]] = None,
 ):
-    """Construct a compound model with two 2D NFW profiles and a constant background."""
+    """
+    Construct a compound model with two 2D NFW profiles and a constant background.
+
+    Parameters
+    ----------
+    init_h1, init_h2, init_const : dict, optional
+        Initialization dictionaries for the NFW profiles and the constant. Defaults parameters are:
+        - init_h1: {"amplitude": 50, "x_mean": -1, "y_mean": 0, "r_s": 0.5, "ellipticity": 0.0, "theta": 0.0}
+        - init_h2: {"amplitude": 50, "x_mean": 1, "y_mean": 0, "r_s": 0.5, "ellipticity": 0.0, "theta": 0.0}
+        - init_const: {"amplitude": 0}
+    bounds : dict, optional
+        Bounds for parameters in format {param_name: (min, max)}.
+    constraints: dict, optional
+        Parameter constraints for the model. Currently supports:
+        - "fixed": list of parameter names to fix
+        - "tied": list of tuples (target_param, source_param) to tie parameters
+
+    Returns:
+    --------
+    model: CompoundModel
+        The constructed compound model.
+    """
 
     init_h1 = init_h1 or {
         "amplitude": 50,
@@ -87,13 +111,13 @@ def build_model(
                 if hasattr(sub, name):
                     getattr(sub, name).bounds = (low, high)
 
-    model = h1 + h2 + const
+    model = h1 + h2 + const  # pyright: ignore[reportOperatorIssue]
 
     if constraints:
         if "fixed" in constraints:
             for param_name in constraints["fixed"]:
-                if hasattr(model, param_name):
-                    getattr(model, param_name).fixed = True
+                if hasattr(model, param_name):  # pyright: ignore[reportArgumentType]
+                    getattr(model, param_name).fixed = True  # pyright: ignore[reportArgumentType]
         if "tied" in constraints:
             for target_param, source_param in constraints["tied"]:
                 if hasattr(model, target_param) and hasattr(model, source_param):
@@ -107,15 +131,36 @@ def build_model(
 
 
 def gen_test_data(
-    x=None,
-    y=None,
-    kw_h1=None,
-    kw_h2=None,
-    kw_const=None,
-    noise_std=None,
-    seed=42,
-):
-    """Generate test data composed of two 2D NFW profiles plus a constant background."""
+    x: Optional[np.ndarray] = None,
+    y: Optional[np.ndarray] = None,
+    kw_h1: Optional[Mapping[str, float]] = None,
+    kw_h2: Optional[Mapping[str, float]] = None,
+    kw_const: Optional[Mapping[str, float]] = None,
+    noise_std: Optional[float] = None,
+    seed: float = 42,
+) -> np.ndarray:
+    """
+    Generate test data composed of two 2D NFW profiles plus a constant background.
+
+    Parameters
+    ----------
+    x, y : np.ndarray, optional
+        Coordinates of the data points. If not provided, they will be generated using `get_coord()`.
+    kw_h1, kw_h2, kw_const : dict, optional
+        Keyword arguments for the NFW profiles and the constant. Defaults are:
+        - kw_h1: {"amplitude": 50, "x_mean": -1, "y_mean": 0, "r_s": 0.5, "ellipticity": 0.0, "theta": 0.0}
+        - kw_h2: {"amplitude": 50, "x_mean": 1, "y_mean": 0, "r_s": 0.5, "ellipticity": 0.0, "theta": 0.0}
+        - kw_const: {"amplitude": 0}
+    noise_std : float, optional
+        Standard deviation of the Gaussian noise to be added to the data. If None, no noise is added.
+    seed : int, optional
+        Seed for the random number generator. Default is 42.
+
+    Returns
+    -------
+    data : np.ndarray
+        The generated test data.
+    """
 
     # Generate coordinates if not provided
     if x is None and y is None:
@@ -129,14 +174,38 @@ def gen_test_data(
 
     # Combine models and add Gaussian noise
     np.random.seed(seed)
-    noise_std = noise_std or 0.1 * np.max(data)
-    data_noisy = data + np.random.normal(0, noise_std, data.shape)
+    # Combine models and add Gaussian noise
+    np.random.seed(seed)
+    if noise_std is not None:
+        data += np.random.normal(0, noise_std, data.shape)
 
-    return data_noisy
+    return data
 
 
-def halofit(*args, model=None, mask=None, print_model=True):
-    """Fit 2D data using a provided or auto-generated double NFW model with constant background."""
+def halofit(
+    *args: np.ndarray,
+    model=None,
+    mask: Optional[np.ndarray] = None,
+    print_model: bool = True,
+) -> Tuple[List[np.ndarray], Any]:
+    """
+    Fit 2D data using a provided or auto-generated double NFW model with constant background.
+
+    Parameters
+    ----------
+    args : tuple
+        Either (data), ((x, y), data), or (x, y, data).
+    model : astropy.modeling.models.Model, optional
+        Model to use for fitting. If not provided, a default model will be generated.
+    mask : np.ndarray, optional
+        Mask to apply to the data before fitting.
+    print_model : bool, optional
+        Whether to print the fitted model. Default is True.
+
+    Returns
+    -------
+    Tuple[List[np.ndarray], Any]
+    """
 
     # Parse input arguments
     if len(args) == 1:
@@ -174,15 +243,9 @@ def halofit(*args, model=None, mask=None, print_model=True):
 
     # Compute fitted data and residuals
     fit_data = fit_model(x, y)
-    residuals = data - fit_data
-    chi2 = np.sum(residuals**2)
-    rms = np.sqrt(np.mean(residuals**2))
+    res = info_fitness(data, fit_data)
 
-    print("\nGoodness of fit:")
-    print(f"Chi-squared: {chi2:.3f}")
-    print(f"RMS residual: {rms:.3f}")
-
-    return [data, fit_data, residuals], fitter.fit_info
+    return [data, fit_data, res], fitter.fit_info  # pyright: ignore[reportReturnType]
 
 
 if __name__ == "__main__":
@@ -196,9 +259,21 @@ if __name__ == "__main__":
         ellipticity=0.2,
         theta=np.pi / 4,
     )
-    data = gen_test_data(kw_h1=kw_h1)
+    nstd = 10
+    data = gen_test_data(kw_h1=kw_h1, noise_std=nstd)
     bounds = {"amplitude": (0, None), "r_s": (0, None), "ellipticity": (0, 0.9)}
-    compound_model = build_model(bounds=bounds)
+    constraints = {
+        "fixed": [
+            "x_mean_0",
+            "y_mean_0",
+            "x_mean_1",
+            "y_mean_1",
+        ],  # fix the center of the two NFW profiles
+        "tied": [
+            ("amplitude_1", "amplitude_0")  # amplitude_1 = amplitude_0
+        ],
+    }
+    compound_model = build_model(bounds=bounds, constraints=constraints)
 
     data_list, fit_info = halofit(data, model=compound_model)
     plot_stack_fit_res(data_list)

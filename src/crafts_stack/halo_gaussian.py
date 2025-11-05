@@ -1,21 +1,39 @@
+from typing import Any, List, Optional, Tuple, Union, Mapping
 import warnings
 import numpy as np
 from astropy.modeling import fitting, models
 from astropy.utils.exceptions import AstropyUserWarning
-from mytools.halo_new import get_coord
+from mytools.halo_new import get_coord, info_fitness
 
 
-def build_model(init_h1=None, init_h2=None, init_const=None, bounds=None, fix_theta=0):
-    """Construct a compound model with two 2D Gaussians and a constant background.
+def build_model(
+    init_h1: Optional[Mapping[str, float]] = None,
+    init_h2: Optional[Mapping[str, float]] = None,
+    init_const: Optional[Mapping[str, float]] = None,
+    bounds: Optional[
+        Mapping[str, Tuple[Union[float, None], Union[float, None]]]
+    ] = None,
+    constraints: Optional[Mapping[str, Union[List[str], List[Tuple[str, str]]]]] = None,
+):
+    """
+    Construct a compound model with two 2D Gaussians and a constant background.
 
     Parameters
     ----------
     init_h1, init_h2, init_const : dict, optional
-        Initialization dictionaries for the two Gaussians and the constant.
+        Initialization dictionaries for the two Gaussians and the constant. Defaults parameters are:
+        - init_h1: {"amplitude": 50, "x_mean": -1, "y_mean": 0, "x_stddev": 0.5, "y_stddev": 0.5}
+        - init_h2: {"amplitude": 50, "x_mean": 1, "y_mean": 0, "x_stddev": 0.5, "y_stddev": 0.5}
+        - init_const: {"amplitude": 0}
     bounds : dict, optional
         Bounds for parameters in format {param_name: (min, max)}.
     fix_theta : float, optional
         Fix the theta parameter of both Gaussians to this value. If None, theta is not fixed. Default is fixed to 0.
+
+    Returns
+    -------
+    model : CompoundModel
+        The constructed compound model.
     """
 
     init_h1 = init_h1 or {
@@ -39,13 +57,6 @@ def build_model(init_h1=None, init_h2=None, init_const=None, bounds=None, fix_th
     h2 = models.Gaussian2D(**init_h2)
     const = models.Const2D(**init_const)
 
-    # Fix theta to zero if requested
-    if fix_theta is not None:
-        h1.theta.fixed = True
-        h2.theta.fixed = True
-        h1.theta.value = fix_theta
-        h2.theta.value = fix_theta
-
     # Combine submodels into a single model
     model = h1 + h2 + const  # pyright: ignore[reportOperatorIssue]
 
@@ -54,13 +65,49 @@ def build_model(init_h1=None, init_h2=None, init_const=None, bounds=None, fix_th
         for name, bound in bounds.items():
             getattr(model, name).bounds = bound
 
+    if constraints:
+        if "fixed" in constraints:
+            for param_name in constraints["fixed"]:
+                if hasattr(model, param_name):  # pyright: ignore[reportArgumentType]
+                    getattr(model, param_name).fixed = True  # pyright: ignore[reportArgumentType]
+        if "tied" in constraints:
+            for target_param, source_param in constraints["tied"]:
+                if hasattr(model, target_param) and hasattr(model, source_param):
+
+                    def make_tie_func(source):
+                        return lambda m: getattr(m, source)
+
+                    getattr(model, target_param).tied = make_tie_func(source_param)
+
     return model
 
 
 def gen_test_data(
-    x=None, y=None, kw_h1=None, kw_h2=None, kw_const=None, noise_std=None, seed=42
-):
-    """Generate test data composed of two 2D Gaussian profiles plus a constant background."""
+    x: Optional[np.ndarray] = None,
+    y: Optional[np.ndarray] = None,
+    kw_h1: Optional[Mapping[str, float]] = None,
+    kw_h2: Optional[Mapping[str, float]] = None,
+    kw_const: Optional[Mapping[str, float]] = None,
+    noise_std: Optional[float] = None,
+    seed: float = 42,
+) -> np.ndarray:
+    """
+    Generate test data composed of two 2D Gaussian profiles plus a constant background.
+
+    Parameters
+    ----------
+    x, y : np.ndarray, optional
+        Arrays of x and y coordinates. If not provided, they will be generated using `get_coord()`.
+    kw_h1, kw_h2, kw_const : dict, optional
+        Keyword arguments for the two Gaussians and the constant, respectively. Defaults parameters are:
+        - kw_h1: {"amplitude": 50, "x_mean": -1, "y_mean": 0, "x_stddev": 0.5, "y_stddev": 0.5}
+        - kw_h2: {"amplitude": 50, "x_mean": 1, "y_mean": 0, "x_stddev": 0.5, "y_stddev": 0.5}
+        - kw_const: {"amplitude": 0}
+    noise_std : float, optional
+        Standard deviation of the Gaussian noise to add to the data. Default is None, in which case no noise is added.
+    seed : int, optional
+        Seed for the random number generator. Default is 42.
+    """
 
     # Generate coordinates if not provided
     if x is None and y is None:
@@ -74,14 +121,36 @@ def gen_test_data(
 
     # Combine models and add Gaussian noise
     np.random.seed(seed)
-    noise_std = noise_std or 0.1 * np.max(data)
-    data_noisy = data + np.random.normal(0, noise_std, data.shape)
+    if noise_std is not None:
+        data += np.random.normal(0, noise_std, data.shape)
 
-    return data_noisy
+    return data
 
 
-def halofit(*args, model=None, mask=None, print_model=True):
-    """Fit 2D data using a provided or auto-generated double Gaussian model with constant background."""
+def halofit(
+    *args: np.ndarray,
+    model=None,
+    mask: Optional[np.ndarray] = None,
+    print_model: bool = True,
+) -> Tuple[List[np.ndarray], Any]:
+    """
+    Fit 2D data using a provided or auto-generated double Gaussian model with constant background.
+
+    Parameters
+    ----------
+    args : tuple
+        Either (data), ((x, y), data), or (x, y, data).
+    model : astropy.modeling.models.Model, optional
+        Model to use for fitting. If not provided, a default model will be generated.
+    mask : np.ndarray, optional
+        Mask to apply to the data before fitting.
+    print_model : bool, optional
+        Whether to print the fitted model. Default is True.
+
+    Returns
+    -------
+    Tuple[List[np.ndarray], Any]
+    """
 
     # Parse input arguments
     if len(args) == 1:
@@ -119,15 +188,9 @@ def halofit(*args, model=None, mask=None, print_model=True):
 
     # Compute fitted data and residuals
     fit_data = fit_model(x, y)
-    residuals = data - fit_data
-    chi2 = np.sum(residuals**2)
-    rms = np.sqrt(np.mean(residuals**2))
+    res = info_fitness(data, fit_data)
 
-    print("\nGoodness of fit:")
-    print(f"Chi-squared: {chi2:.3f}")
-    print(f"RMS residual: {rms:.3f}")
-
-    return [data, fit_data, residuals], fitter.fit_info
+    return [data, fit_data, res], fitter.fit_info  # pyright: ignore[reportReturnType]
 
 
 if __name__ == "__main__":
@@ -140,8 +203,16 @@ if __name__ == "__main__":
         y_mean=0,
         y_stddev=0.5,
     )
-    data = gen_test_data(kw_h1=kw_h1)
-    bounds = {"amplitude": (0, None), "x_stddev": (0, None), "y_stddev": (0, None)}
+    nstd = 10
+    data = gen_test_data(kw_h1=kw_h1, noise_std=nstd)
+    bounds = {
+        "amplitude_0": (0.0, None),
+        "x_stddev_0": (0.0, None),
+        "y_stddev_0": (0.0, None),
+        "amplitude_1": (0.0, None),
+        "x_stddev_1": (0.0, None),
+        "y_stddev_1": (0.0, None),
+    }
     compound_model = build_model(bounds=bounds)
 
     data_list, fit_info = halofit(data, model=compound_model)
