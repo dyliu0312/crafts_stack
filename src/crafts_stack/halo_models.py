@@ -9,7 +9,7 @@ Currently included signal models are:
 
 Background models are:
 - `Const2D`: Constant background model.
-- `Polynomial2D`: Polynomial background model.
+- `Poly2D`: Polynomial background model consists of two Polynomial2D model, with x_domain_1=(-4,2), x_domain_2=(-2,4)
 """
 
 import numpy as np
@@ -118,10 +118,44 @@ def get_model(model_name: str):
     return AVAILABLE_MODELS[model_name]
 
 
+def Poly2D(
+    degree: int = 2,
+    x_domain_1: Tuple[int, int] = (-4, 2),
+    y_domain_1: Tuple[int, int] = (-3, 3),
+    x_domain_2: Tuple[int, int] = (-2, 4),
+    y_domain_2: Tuple[int, int] = (-3, 3),
+    x_window_1: Optional[Tuple[int, int]] = None,
+    y_window_1: Optional[Tuple[int, int]] = None,
+    x_window_2: Optional[Tuple[int, int]] = None,
+    y_window_2: Optional[Tuple[int, int]] = None,
+):
+    """
+    Polynomial model with two domains.
+    """
+    # Create two polynomial models with domains centered on the halos
+    bg1 = models.Polynomial2D(
+        degree=degree,
+        x_domain=x_domain_1,
+        y_domain=y_domain_1,
+        x_window=x_window_1,
+        y_window=y_window_1,
+    )
+    bg2 = models.Polynomial2D(
+        degree=degree,
+        x_domain=x_domain_2,
+        y_domain=y_domain_2,
+        x_window=x_window_2,
+        y_window=y_window_2,
+    )
+
+    return bg1 + bg2  # pyright: ignore[reportOperatorIssue]
+
+
 # Dictionary of available background models
 AVAILABLE_BACKGROUNDS = {
     "const": models.Const2D,
-    "poly": models.Polynomial2D,
+    # "poly": models.Polynomial2D,
+    "poly": Poly2D,
 }
 
 
@@ -139,8 +173,8 @@ def get_background_model(model_name: str):
 
 
 def build_model(
-    model_name: Literal['nfw', 'gaussian', 'lorentz'] = "nfw",
-    background_name: Literal['const', 'poly'] = "const",
+    model_name: Literal["nfw", "gaussian", "lorentz"] = "nfw",
+    background_name: Literal["const", "poly"] = "const",
     init_h1: Optional[Dict[str, float]] = None,
     init_h2: Optional[Dict[str, float]] = None,
     init_bg: Optional[Dict[str, Any]] = None,
@@ -165,7 +199,7 @@ def build_model(
     init_bg : dict, optional
         Initial parameters for the background model, by default None to use defaults based on background_name.
         - const: {"amplitude": 0}
-        - poly: {"degree": 2, "x_domain": (-3, 3), "y_domain": (-3, 3)}
+        - poly: {"degree": 2}
     bounds : dict, optional
         Bounds for parameters in format {param_name: (min, max)}. By default None
     constraints : dict, optional
@@ -188,8 +222,6 @@ def build_model(
         default_init = {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
     elif model_name == "lorentz":
         default_init = {"amplitude": 50, "fwhm": 1.0, "ellipticity": 0, "theta": 0}
-    else:
-        default_init = {"amplitude": 50}
 
     h1_init = default_init.copy()
     h1_init.update({"x_mean": -1, "y_mean": 0})
@@ -205,7 +237,7 @@ def build_model(
         if background_name == "const":
             init_bg = {"amplitude": 0}
         elif background_name == "poly":
-            init_bg = {"degree": 2, "x_domain": (-3, 3), "y_domain": (-3, 3)}
+            init_bg = {"degree": 1}
 
     # create independent submodels
     h1 = model_class(**h1_init)
