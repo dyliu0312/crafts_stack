@@ -23,6 +23,30 @@ def build_model(
 ):
     """
     Construct a compound model with two halo profiles and a constant background.
+
+    Parameters
+    ----------
+    model_name : str, optional
+        Name of the halo model to use, by default "nfw"
+    init_h1, init_h2 : dict, optional
+        Initial parameters for the first halo profile, the second halo profile, and the constant background, by default None to use defaults based on model_name. The defaults are:
+        - nfw: {"amplitude": 50, "r_s": 0.5, "ellipticity": 0, "theta": 0}
+        - gaussian: {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
+        - lorentz: {"amplitude": 50, "fwhm": 1.0, "ellipticity": 0, "theta": 0}
+        - other: {"amplitude": 50}
+    init_const : dict, optional
+        Initial parameters for the constant background, by default None to use default {"amplitude": 0}
+    bounds : dict, optional
+        Bounds for parameters in format {param_name: (min, max)}. By default None
+    constraints : dict, optional
+        Parameter constraints for the model, by default None. Currently supports:
+        - "fixed": list of parameter names to fix
+        - "tied": list of tuples (target_param, source_param) to tie parameters
+
+    Returns
+    -------
+    astropy.modeling.CompoundModel
+        Compound model with two halo profiles and a constant background
     """
     model_class = get_model(model_name)
 
@@ -89,7 +113,25 @@ def gen_test_data(
     seed: float = 42,
 ) -> np.ndarray:
     """
-    Generate test data.
+    Generate test data based on a specified model.
+
+    Parameters
+    ----------
+    model_name : str, optional
+        Name of the model to use for generating the test data. Default is "nfw".
+    x, y : np.ndarray, optional
+        Coordinates of the data points. If not provided, they will be generated using `get_coord()`.
+    kw_h1, kw_h2, kw_const : dict, optional
+        Keyword arguments for the model. Default is None to use defaults based on model_name.
+    noise_std : float, optional
+        Standard deviation of the Gaussian noise to be added to the data. If None, no noise is added.
+    seed : int, optional
+        Seed for the random number generator. Default is 42.
+
+    Returns
+    -------
+    data : np.ndarray
+        The generated test data.
     """
     if x is None and y is None:
         x, y = get_coord()
@@ -109,13 +151,30 @@ def gen_test_data(
 
 def halofit(
     *args: np.ndarray,
-    model_name: Optional[str] = "nfw",
     model: Optional[Any] = None,
+    model_name: Optional[str] = "nfw",
     mask: Optional[np.ndarray] = None,
     print_model: bool = True,
 ) -> Tuple[List[np.ndarray], Any]:
     """
-    Fit 2D data.
+    Fit 2D data using a provided or auto-generated model.
+
+    Parameters
+    ----------
+    args : tuple
+        Either (data), ((x, y), data), or (x, y, data).
+    model : astropy.modeling.models.Model, optional
+        Model to use for fitting. If not provided, a default model will be generated based on the model_name.
+    model_name : str, optional
+        Name of the model to use for fitting. Default is "nfw".
+    mask : np.ndarray, optional
+        Mask to apply to the data before fitting.
+    print_model : bool, optional
+        Whether to print the fitted model. Default is True.
+
+    Returns
+    -------
+    Tuple[List[np.ndarray], Any]
     """
     # Parse input arguments
     if len(args) == 1:
