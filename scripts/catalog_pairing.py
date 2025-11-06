@@ -1,6 +1,8 @@
 """
-A script to select galaxy pairs satifying a given angular separation and maximum radial separation in a ra-dec-redshift space.
+A script to select galaxy pairs satifying a given angular separation and maximum radial separation
+in a ra-dec-redshift space.
 """
+
 import os
 import sys
 from functools import partial
@@ -79,7 +81,9 @@ def radial_distance(z: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     Returns:
         Union[float, np.ndarray]: Radial distance(s) in Mpc/h.
     """
-    return plk.comoving_distance(z).value * plk.h  # type: ignore # Convert to Mpc/h
+    return (
+        plk.comoving_distance(z).value * plk.h  # pyright: ignore[reportAttributeAccessIssue]
+    )  # Convert to Mpc/h
 
 
 def get_pair_info(
@@ -101,10 +105,10 @@ def get_pair_info(
             - is_ra_dominant (bool): True if RA separation is greater than DEC separation.
     """
     # Calculate angular distance
-    coord1 = SkyCoord(ra=ra1 * u.deg, dec=dec1 * u.deg, frame="icrs") # type: ignore
-    coord2 = SkyCoord(ra=ra2 * u.deg, dec=dec2 * u.deg, frame="icrs") # type: ignore
+    coord1 = SkyCoord(ra=ra1 * u.deg, dec=dec1 * u.deg, frame="icrs")  # pyright: ignore[reportAttributeAccessIssue]
+    coord2 = SkyCoord(ra=ra2 * u.deg, dec=dec2 * u.deg, frame="icrs")  # pyright: ignore[reportAttributeAccessIssue]
     # Get separation in radians
-    sep_radian = coord1.separation(coord2).to(u.rad).value  # type: ignore 
+    sep_radian = coord1.separation(coord2).to(u.rad).value  # pyright: ignore[reportAttributeAccessIssue]
 
     # Calculate radial distances for each galaxy
     rad1 = radial_distance(z1)
@@ -112,7 +116,7 @@ def get_pair_info(
 
     # Convert angular separation to a physical distance
     # This approximates the projected transverse separation by taking the mean distance
-    angular_dist = np.mean([rad1, rad2]) * sep_radian # type: ignore
+    angular_dist = np.mean([rad1, rad2]) * sep_radian  # pyright: ignore[reportCallIssue, reportArgumentType]
 
     # Calculate absolute difference in radial distances
     radial_dist = abs(rad1 - rad2)
@@ -120,7 +124,7 @@ def get_pair_info(
     # Determine if separation is "longer" in RA direction
     is_ra_dominant = abs(ra2 - ra1) > abs(dec2 - dec1)
 
-    return angular_dist, radial_dist, is_ra_dominant # type: ignore
+    return angular_dist, radial_dist, is_ra_dominant  # pyright: ignore[reportReturnType]
 
 
 def process_single_index(

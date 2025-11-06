@@ -170,10 +170,10 @@ def prepare_data_cube(
 
     with h5.File(input_path, "r") as fin:
         freq_key, lon_key, lat_key, val_key = input_keys
-        r_lon = np.array(fin[lon_key][()])  # type: ignore
-        r_lat = np.array(fin[lat_key][()])  # type: ignore
-        r_val = np.array(fin[val_key][()])  # type: ignore
-        fbin_center = np.array(fin[freq_key][()])  # type: ignore
+        r_lon = np.array(fin[lon_key][()])  # pyright: ignore[reportIndexIssue]
+        r_lat = np.array(fin[lat_key][()])  # pyright: ignore[reportIndexIssue]
+        r_val = np.array(fin[val_key][()])  # pyright: ignore[reportIndexIssue]
+        fbin_center = np.array(fin[freq_key][()])  # pyright: ignore[reportIndexIssue]
 
     # Get edge bins from frequency center bins
     fbin = center_to_edge_bin(fbin_center)
