@@ -9,12 +9,13 @@ Currently included signal models are:
 
 Background models are:
 - `Const2D`: Constant background model.
-- `Poly2D`: Polynomial background model consists of two Polynomial2D model, with x_domain_1=(-4,2), x_domain_2=(-2,4)
+- `Poly2D`: Polynomial background model
 """
+
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 from astropy.modeling import Fittable2DModel, Parameter, models
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 
 class NFW2D(Fittable2DModel):
@@ -118,44 +119,10 @@ def get_model(model_name: str):
     return AVAILABLE_MODELS[model_name]
 
 
-def Poly2D(
-    degree: int = 2,
-    x_domain_1: Tuple[int, int] = (-4, 2),
-    y_domain_1: Tuple[int, int] = (-3, 3),
-    x_domain_2: Tuple[int, int] = (-2, 4),
-    y_domain_2: Tuple[int, int] = (-3, 3),
-    x_window_1: Optional[Tuple[int, int]] = None,
-    y_window_1: Optional[Tuple[int, int]] = None,
-    x_window_2: Optional[Tuple[int, int]] = None,
-    y_window_2: Optional[Tuple[int, int]] = None,
-):
-    """
-    Polynomial model with two domains.
-    """
-    # Create two polynomial models with domains centered on the halos
-    bg1 = models.Polynomial2D(
-        degree=degree,
-        x_domain=x_domain_1,
-        y_domain=y_domain_1,
-        x_window=x_window_1,
-        y_window=y_window_1,
-    )
-    bg2 = models.Polynomial2D(
-        degree=degree,
-        x_domain=x_domain_2,
-        y_domain=y_domain_2,
-        x_window=x_window_2,
-        y_window=y_window_2,
-    )
-
-    return bg1 + bg2  # pyright: ignore[reportOperatorIssue]
-
-
 # Dictionary of available background models
 AVAILABLE_BACKGROUNDS = {
     "const": models.Const2D,
-    # "poly": models.Polynomial2D,
-    "poly": Poly2D,
+    "poly": models.Polynomial2D,
 }
 
 
@@ -173,85 +140,107 @@ def get_background_model(model_name: str):
 
 
 def build_model(
-    model_name: Literal["nfw", "gaussian", "lorentz"] = "nfw",
-    background_name: Literal["const", "poly"] = "const",
-    init_h1: Optional[Dict[str, float]] = None,
-    init_h2: Optional[Dict[str, float]] = None,
-    init_bg: Optional[Dict[str, Any]] = None,
-    bounds: Optional[Dict[str, Tuple[Union[float, None], Union[float, None]]]] = None,
-    constraints: Optional[Dict[str, Union[List[str], List[Tuple[str, str]]]]] = None,
+    halo_model: Literal["nfw", "gaussian", "lorentz"] = "nfw",
+    bg_model: Literal["const", "poly", None] = None,
+    param_h1: Optional[Dict[str, float]] = None,
+    param_h2: Optional[Dict[str, float]] = None,
+    param_bg: Optional[Dict[str, Any]] = None,
 ):
     """
     Construct a compound model with two halo profiles and a background.
 
     Parameters
     ----------
-    model_name : str, optional
+    halo_model : str, optional
         Name of the halo model to use, by default "nfw"
-    background_name : str, optional
+    bg_model : str, optional
         Name of the background model to use, by default "const"
-    init_h1, init_h2 : dict, optional
-        Initial parameters for the first halo profile, the second halo profile, and the constant background, by default None to use defaults based on model_name. The defaults are:
+    param_h1, param_h2 : dict, optional
+        Parameters for the first halo profile, the second halo profile. The defaults are:
         - nfw: {"amplitude": 50, "r_s": 0.5, "ellipticity": 0, "theta": 0}
         - gaussian: {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
         - lorentz: {"amplitude": 50, "fwhm": 1.0, "ellipticity": 0, "theta": 0}
-        - other: {"amplitude": 50}
-    init_bg : dict, optional
-        Initial parameters for the background model, by default None to use defaults based on background_name.
+    param_bg : dict, optional
+        Parameters for the background model. The defaults are:
         - const: {"amplitude": 0}
         - poly: {"degree": 2}
+
+    Returns
+    -------
+    astropy.modeling.CompoundModel
+        Compound model with two halo profiles (and background)
+    """
+    model_class = get_model(halo_model)
+
+    # Set default initial parameters based on model type
+    if halo_model == "nfw":
+        default_init = {"amplitude": 50, "r_s": 0.5, "ellipticity": 0, "theta": 0}
+    elif halo_model == "gaussian":
+        default_init = {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
+    elif halo_model == "lorentz":
+        default_init = {"amplitude": 50, "fwhm": 1.0, "ellipticity": 0, "theta": 0}
+
+    h1_init = default_init.copy()
+    h1_init.update({"x_mean": -1, "y_mean": 0})
+    if param_h1 is not None:
+        h1_init.update(param_h1)  # pyright: ignore[reportArgumentType, reportCallIssue]
+
+    h2_init = default_init.copy()
+    h2_init.update({"x_mean": 1, "y_mean": 0})
+    if param_h2 is not None:
+        h2_init.update(param_h2)  # pyright: ignore[reportArgumentType, reportCallIssue]
+
+    # create models of halos
+    h1 = model_class(**h1_init)
+    h2 = model_class(**h2_init)
+
+    model = h1 + h2
+
+    # background term
+    if bg_model is not None:
+        background_class = get_background_model(bg_model)
+        if param_bg is None:
+            if bg_model == "const":
+                param_bg = {"amplitude": 0}
+            elif bg_model == "poly":
+                param_bg = {"degree": 1}
+
+        bg = background_class(**param_bg)  # pyright: ignore[reportCallIssue]
+
+        model += bg
+
+    return model
+
+
+def apply_prior(
+    model:Fittable2DModel,
+    bounds: Optional[Dict[str, Tuple[Union[float, None], Union[float, None]]]] = None,
+    constraints: Optional[Dict[str, Union[List[str], List[Tuple[str, str]]]]] = None,
+)-> Fittable2DModel:
+    """
+    Apply parameter bounds and constraints to a model.
+
+    Parameters
+    ----------
+    model : astropy.modeling.Model
+        Model to apply bounds and constraints to    
     bounds : dict, optional
         Bounds for parameters in format {param_name: (min, max)}. By default None
     constraints : dict, optional
         Parameter constraints for the model, by default None. Currently supports:
         - "fixed": list of parameter names to fix
         - "tied": list of tuples (target_param, source_param) to tie parameters
-
+    
     Returns
     -------
-    astropy.modeling.CompoundModel
-        Compound model with two halo profiles and a background
+    astropy.modeling.Model
     """
-    model_class = get_model(model_name)
-    background_class = get_background_model(background_name)
-
-    # Set default initial parameters based on model type
-    if model_name == "nfw":
-        default_init = {"amplitude": 50, "r_s": 0.5, "ellipticity": 0, "theta": 0}
-    elif model_name == "gaussian":
-        default_init = {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
-    elif model_name == "lorentz":
-        default_init = {"amplitude": 50, "fwhm": 1.0, "ellipticity": 0, "theta": 0}
-
-    h1_init = default_init.copy()
-    h1_init.update({"x_mean": -1, "y_mean": 0})
-    if init_h1 is not None:
-        h1_init.update(init_h1)  # pyright: ignore[reportArgumentType, reportCallIssue]
-
-    h2_init = default_init.copy()
-    h2_init.update({"x_mean": 1, "y_mean": 0})
-    if init_h2 is not None:
-        h2_init.update(init_h2)  # pyright: ignore[reportArgumentType, reportCallIssue]
-
-    if init_bg is None:
-        if background_name == "const":
-            init_bg = {"amplitude": 0}
-        elif background_name == "poly":
-            init_bg = {"degree": 1}
-
-    # create independent submodels
-    h1 = model_class(**h1_init)
-    h2 = model_class(**h2_init)
-    bg = background_class(**init_bg)  # pyright: ignore[reportCallIssue]
-
-    model = h1 + h2 + bg
-
     # Apply parameter bounds (if provided)
     if bounds:
         for name, bound in bounds.items():
             if hasattr(model, name):
                 getattr(model, name).bounds = bound
-
+    # Apply parameter constraints (if provided)
     if constraints:
         if "fixed" in constraints:
             for param_name in constraints["fixed"]:
