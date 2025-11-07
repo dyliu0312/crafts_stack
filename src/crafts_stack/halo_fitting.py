@@ -139,3 +139,96 @@ def halofit(
     info_fitness(data_fit, fit_model(x_fit, y_fit), len(model.parameters))
 
     return [data, fit_data, res], fit_model, fitter.fit_info
+
+
+def cov_to_err_map(
+    fit_model: Any,
+    fit_info: Dict[str, Any],
+    x: np.ndarray,
+    y: np.ndarray,
+    n_samples: int = 100,
+    seed: int = 42,
+) -> np.ndarray:
+    """
+    Calculate a 2D error map from the covariance matrix of a fit.
+    This is done by drawing samples from a multivariate normal distribution
+    defined by the best-fit parameters and their covariance matrix. The error
+    at each point is then the standard deviation of the model evaluated for
+    each parameter sample.
+
+    Parameters
+    ----------
+    fit_model : astropy.modeling.Model
+        The fitted model.
+    fit_info : dict
+        The fit information dictionary returned by the fitter, which should
+        contain the parameter covariance matrix in 'param_cov'.
+    x, y : np.ndarray
+        The coordinates at which to evaluate the model.
+    n_samples : int, optional
+        The number of samples to draw for the Monte Carlo estimation, by default 100.
+    seed : int, optional
+        Seed for the random number generator, by default 42.
+
+    Returns
+    -------
+    np.ndarray
+        The 2D error map.
+    """
+
+    if "param_cov" not in fit_info or fit_info["param_cov"] is None:
+        warnings.warn("Covariance matrix not found in fit_info. Returning zeros.")
+
+        if x.shape != y.shape:
+            raise ValueError("x and y must have the same shape.")
+
+        return np.zeros(x.shape, dtype=float)
+
+    cov = fit_info["param_cov"]
+
+    # Identify free (non-fixed and non-tied) parameters
+    free_mask = np.array(
+        [
+            not (fit_model.fixed[name] or fit_model.tied[name])
+            for name in fit_model.param_names
+        ]
+    )
+
+    p_all_best = fit_model.parameters
+    p_free_best = p_all_best[free_mask]
+
+    if cov.shape[0] != len(p_free_best):
+        raise ValueError(
+            "Shape of covariance matrix does not match number of free parameters. "
+            f"({cov.shape[0]} vs {len(p_free_best)})"
+        )
+
+    # Ensure covariance matrix is positive semi-definite
+    cov = (cov + cov.T) / 2.0
+
+    rng = np.random.default_rng(seed)
+    try:
+        free_param_samples = rng.multivariate_normal(p_free_best, cov, size=n_samples)
+    except np.linalg.LinAlgError:
+        warnings.warn(
+            "Covariance matrix is not positive semi-definite. "
+            "Falling back to uncorrelated parameter errors for sampling."
+        )
+        param_std = np.sqrt(np.abs(np.diag(cov)))  # abs for safety
+        free_param_samples = rng.normal(
+            p_free_best, param_std, size=(n_samples, len(p_free_best))
+        )
+
+    model_realizations = []
+
+    for free_params_sample in free_param_samples:
+        model_copy = fit_model.copy()
+        # Create full parameter set for this sample
+        p_sample_all = p_all_best.copy()
+        p_sample_all[free_mask] = free_params_sample
+        model_copy.parameters = p_sample_all
+        model_realizations.append(model_copy(x, y))
+
+    error_map = np.std(model_realizations, axis=0)
+
+    return error_map
