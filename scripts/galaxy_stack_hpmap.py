@@ -8,46 +8,48 @@ from multiprocessing import Pool
 
 import h5py as h5
 import numpy as np
+
 from crafts_stack.hpmap import find_pixels_within_radius, shift_pixel_to_target
 
 
 # --- HEALPix Utilities ---
 def find_frequency_index(freq, freq_bins):
     """
-    从频率bin中找到给定频率最接近的索引。
+    Finds the closest index for a given frequency from a frequency bin.
 
-    此函数通过计算目标频率与所有频率bin之间的绝对差值，
-    然后返回差值最小的索引，从而确保总是能找到一个最接近的频率。
+    This function calculates the absolute difference between the target frequency and all frequency bins,
+    and then returns the index of the minimum difference, thus ensuring that the closest frequency is always found.
 
-    参数:
-    - freq (float): 要查找的目标频率。
-    - freq_bins (numpy.ndarray): 可用的频率bin数组。
+    Parameters:
+    - freq (float): The target frequency to look for.
+    - freq_bins (numpy.ndarray): The array of available frequency bins.
 
-    返回:
-    - int: `freq_bins` 中最接近频率的索引。
+    Returns:
+    - int: The index of the closest frequency in `freq_bins`.
     """
-    # 计算目标频率与所有频率bin的绝对差值
+    # Calculate the absolute difference between the target frequency and all frequency bins
     idx = np.abs(freq_bins - freq).argmin()
     return idx
+
 
 # --- Map Stacking Functions ---
 def get_stack_value(results, sort=False):
     """
-    从并行堆叠结果中聚合和平均像素值。
+    Aggregates and averages pixel values from parallel stacking results.
 
-    给定一个字典列表，其中每个字典包含一个星系贡献的像素索引和值，
-    此函数组合所有结果。对于重叠的像素（即在多个星系贡献中出现），它会计算其平均值。
+    Given a list of dictionaries, where each dictionary contains a galaxy's contribution of pixel indices and values,
+    this function combines all results. For overlapping pixels (i.e., those appearing in multiple galaxy contributions), it calculates their average value.
 
-    参数:
-    - results (list): 一个字典列表，每个字典包含键 'pix' (像素索引) 和 'val' (对应值)。
+    Parameters:
+    - results (list): A list of dictionaries, each containing the keys 'pix' (pixel indices) and 'val' (corresponding values).
 
-    返回:
-    - union_pix (numpy.ndarray): 找到的所有唯一像素索引的排序数组。
-    - avg_values (numpy.ndarray): 对应于 `union_pix` 中每个像素的聚合（或平均）值数组。
+    Returns:
+    - union_pix (numpy.ndarray): A sorted array of all unique pixel indices found.
+    - avg_values (numpy.ndarray): An array of aggregated (or averaged) values corresponding to each pixel in `union_pix`.
     """
     pix_values = defaultdict(list)
     for result in results:
-        for pix, val in zip(result['pix'], result['val']):
+        for pix, val in zip(result["pix"], result["val"]):
             pix_values[pix].append(val)
 
     # Calculate average for overlapping pixels and collect results
@@ -56,19 +58,19 @@ def get_stack_value(results, sort=False):
     for pix, vals in pix_values.items():
         union_pix.append(pix)
         avg_values.append(np.ma.mean(vals))
-    
+
     if sort:
-       # Sort pixels and values to maintain a consistent order
+        # Sort pixels and values to maintain a consistent order
         union_pix = np.array(sorted(union_pix))
-        
+
         # Reorder avg_values to match the sorted union_pix
         pix_order = np.array(list(pix_values.keys()))
         pix_vals = np.array([np.mean(v) for v in pix_values.values()])
-        
+
         # Create a mapping from original pix to sorted index
         map_dict = {p: i for i, p in enumerate(pix_order)}
         sorted_indices = [map_dict[p] for p in union_pix]
-        
+
         avg_values = pix_vals[sorted_indices]
 
     return np.array(union_pix), np.ma.array(avg_values)
@@ -86,59 +88,54 @@ def stack_healpix_map(
     lat0=0,
 ):
     """
-    处理星系列表以生成堆叠的 HEALPix 地图结果。
+    Processes a galaxy catalog to produce a stacked HEALPix map result.
 
-    此函数遍历星系目录，找到 HEALPix 地图上对应的信号，将像素索引相对于
-    一个共同中心进行归一化，并返回结果以供聚合。
+    This function iterates through the galaxy catalog, finds the corresponding signals on the HEALPix map, normalizes the pixel indices relative to
+    a common center, and returns the results for aggregation.
 
-    参数:
-    - catalog (list): 包含 'ra'、'dec' 和 'freq' 键的星系字典列表。
-    - map_pix (numpy.ndarray): 稀疏天空地图的像素索引数组。
-    - map_value (numpy.ndarray): 信号值的二维数组，形状为 `(nfreq, len(map_pix))`。
-    - freq_bins (numpy.ndarray): 天空地图的频率bin列表。
-    - radius_rad (float, optional): 每个星系周围的角半径，单位为弧度。
-                                    默认为5度。
-    - nside (int, optional): HEALPix nside 参数。默认为32。
-    - nfreq (int, optional): 在目标频率周围平均的相邻频率数量。如果为None，则不进行平均。
-    - lon0 (float, optional): 归一化的参考经度。默认为90。
-    - lat0 (float, optional): 归一化的参考纬度。默认为0。
+    Parameters:
+    - catalog (list): A list of galaxy dictionaries containing 'ra', 'dec', and 'freq' keys.
+    - map_pix (numpy.ndarray): An array of pixel indices for the sparse sky map.
+    - map_value (numpy.ndarray): A 2D array of signal values, with shape `(nfreq, len(map_pix))`.
+    - freq_bins (numpy.ndarray): A list of frequency bins for the sky map.
+    - radius_deg (float, optional): The angular radius around each galaxy in degrees.
+                                    Defaults to 5.
+    - nside (int, optional): The HEALPix nside parameter. Defaults to 32.
+    - nfreq (int, optional): The number of adjacent frequencies to average around the target frequency. If None, no averaging is performed.
+    - lon0 (float, optional): The reference longitude for normalization. Defaults to 90.
+    - lat0 (float, optional): The reference latitude for normalization. Defaults to 0.
 
-    返回:
-    - list: 字典列表，每个字典包含归一化后的像素索引 ('pix') 和
-            对应于一个星系的信号值 ('val')。
+    Returns:
+    - list: A list of dictionaries, each containing the normalized pixel indices ('pix') and
+            the corresponding signal values ('val') for one galaxy.
     """
     stack_res = []
 
     for galaxy in catalog:
         ra, dec, freq = galaxy["ra"], galaxy["dec"], galaxy["freq"]
-        ra = np.mod(ra, 360)  # 确保 RA 在 [0, 360) 范围内
+        ra = np.mod(ra, 360)  # Ensure RA is in the range [0, 360)
         found_pix_ind = find_pixels_within_radius(nside, ra, dec, radius_deg)
         freq_ind = find_frequency_index(freq, freq_bins)
 
         # get the values of valid pix
         cut_ind = np.isin(map_pix, found_pix_ind)
         found_pix_ind = map_pix[cut_ind]
-        
+
         if nfreq is not None:
-            freq_slice = slice(max(freq_ind - nfreq, 0), min(freq_ind + nfreq + 1, len(freq_bins)-1))
+            freq_slice = slice(
+                max(freq_ind - nfreq, 0), min(freq_ind + nfreq + 1, len(freq_bins) - 1)
+            )
             values = map_value[freq_slice, :][:, cut_ind].mean(axis=0)
         else:
             values = map_value[freq_ind, :][cut_ind]
 
         shifted_pixel = shift_pixel_to_target(
-            nside,
-            found_pix_ind,
-            original_field=(ra, dec),
-            new_field=(lon0, lat0)
+            nside, found_pix_ind, original_field=(ra, dec), new_field=(lon0, lat0)
         )
-        
-        stack_res.append(
-            {
-                'pix': shifted_pixel,
-                'val': values
-            }
-        )
+
+        stack_res.append({"pix": shifted_pixel, "val": values})
     return stack_res
+
 
 # --- Data Loading and Saving Functions ---
 def load_map(
@@ -147,70 +144,80 @@ def load_map(
     key_value="clean_map",
     key_freq="freq",
     key_nside="nside",
-    swap_axis=False
+    swap_axis=False,
 ):
     """
-    从 HDF5 文件加载稀疏 HEALPix 地图和相关数据。
+    Loads a sparse HEALPix map and associated data from an HDF5 file.
 
-    参数:
-    - map_path (str): 包含地图数据的 HDF5 文件路径。
-    - key_pix (str, optional): 像素索引数据集的键。默认为"map_pix"。
-    - key_value (str, optional): 信号值数据集的键。默认为"clean_map"。
-    - key_nside (str, optional): HEALPix nside 参数的键。默认为"nside"。
-    - key_freq (str, optional): 频率bin数据集的键。默认为"freq"。
-    - swap_axis (bool): 如果为True，则交换频率和像素轴。默认为False。
+    Parameters:
+    - map_path (str): The path to the HDF5 file containing the map data.
+    - key_pix (str, optional): The key for the pixel index dataset. Defaults to "map_pix".
+    - key_value (str, optional): The key for the signal value dataset. Defaults to "clean_map".
+    - key_nside (str, optional): The key for the HEALPix nside parameter. Defaults to "nside".
+    - key_freq (str, optional): The key for the frequency bin dataset. Defaults to "freq".
+    - swap_axis (bool): If True, swaps the frequency and pixel axes. Defaults to False.
 
-    返回:
-    - tuple: 包含以下内容的元组：
-        - nside (int): HEALPix nside 参数。
-        - map_pix (numpy.ndarray): 像素索引数组。
-        - map_value (numpy.ndarray): 信号值的二维数组 (freq, pix)。
-        - freq_bins (numpy.ndarray): 频率bin数组。
+    Returns:
+    - tuple: A tuple containing:
+        - nside (int): The HEALPix nside parameter.
+        - map_pix (numpy.ndarray): The array of pixel indices.
+        - map_value (numpy.ndarray): The 2D array of signal values (freq, pix).
+        - freq_bins (numpy.ndarray): The array of frequency bins.
 
     """
     with h5.File(map_path, "r") as f:
-        nside = f[key_nside][()] # type: ignore
-        map_pix = f[key_pix][()] # type: ignore
-        freq_bins = f[key_freq][()] # type: ignore
-        map_value = f[key_value][()] # type: ignore
+        nside = f[key_nside][()]  # type: ignore
+        map_pix = f[key_pix][()]  # type: ignore
+        freq_bins = f[key_freq][()]  # type: ignore
+        map_value = f[key_value][()]  # type: ignore
     if str(swap_axis).lower() in ("true", "1", "yes"):
         print("Swapping frequency and pixel axes.")
-        map_value = np.swapaxes(map_value, 0, 1) # type: ignore
-    print(f"Loaded map with nside={nside}, {len(map_pix)} pixels, and {len(freq_bins)} frequency bins.") # type: ignore
+        map_value = np.swapaxes(map_value, 0, 1)  # type: ignore
+    print(
+        f"Loaded map with nside={nside}, {len(map_pix)} pixels, and {len(freq_bins)} frequency bins."
+    )  # type: ignore
     return nside, map_pix, map_value, freq_bins
 
 
 def load_catalog(cat_path, keys=["ra", "dec", "freq"], cut=None):
     """
-    从 HDF5 文件加载星系目录。
+    Loads a galaxy catalog from an HDF5 file.
 
-    参数:
-    - cat_path (str): 包含目录的 HDF5 文件路径。
-    - keys (list, optional): 要为每个星系提取的数据集键列表。
-                             默认为 ["ra", "dec", "freq"]。
+    Parameters:
+    - cat_path (str): The path to the HDF5 file containing the catalog.
+    - keys (list, optional): A list of dataset keys to extract for each galaxy.
+                             Defaults to ["ra", "dec", "freq"].
+    - cut (int, optional): If provided, only load a slice of the catalog up to this many galaxies.
 
-    返回:
-    - list: 字典列表，每个字典代表一个星系，并包含指定的键及其值。
+    Returns:
+    - list: A list of dictionaries, where each dictionary represents a galaxy and contains the specified keys and their values.
     """
+
     with h5.File(cat_path, "r") as f:
         if cut is not None:
-            # 如果提供了切片，则仅加载指定范围内的星系
-            catalog = [{key: f[key][i] for key in keys} for i in range(len(f[keys[0]]))[:cut]] # type: ignore
+            # If a slice is provided, only load galaxies within the specified range
+
+            catalog = [
+                {key: f[key][i] for key in keys} for i in range(len(f[keys[0]]))[:cut]
+            ]  # type: ignore
+
         else:
-            catalog = [{key: f[key][i] for key in keys} for i in range(len(f[keys[0]]))] # type: ignore
+            catalog = [{key: f[key][i] for key in keys} for i in range(len(f[keys[0]]))]  # type: ignore
+
     print(f"Loaded catalog with {len(catalog)} galaxies.")
+
     return catalog
 
 
 def save_result(pix, signal, path, nside):
     """
-    将堆叠的 HEALPix 像素索引和值保存到 HDF5 文件。
+    Saves the stacked HEALPix pixel indices and values to an HDF5 file.
 
-    参数:
-    - pix (numpy.ndarray): 堆叠结果的像素索引。
-    - signal (numpy.ndarray): 堆叠结果的信号值。
-    - path (str): 输出文件路径。
-    - nside (int): HEALPix nside 参数。
+    Parameters:
+    - pix (numpy.ndarray): The pixel indices of the stacked result.
+    - signal (numpy.ndarray): The signal values of the stacked result.
+    - path (str): The output file path.
+    - nside (int): The HEALPix nside parameter.
     """
     with h5.File(path, "w") as f:
         f.create_dataset("stack_pix", data=pix, dtype="i4")
@@ -224,45 +231,49 @@ def main(
     map_path,
     map_keys={},
     cat_keys={},
-    nworker:int = 4,
-    radius_deg:float = 1,
+    nworker: int = 4,
+    radius_deg: float = 1,
     nfreq=None,
-    lon0:float = 90,
-    lat0:float = 0,
+    lon0: float = 90,
+    lat0: float = 0,
     ouput_path=None,
 ):
     """
-    主函数，用于加载数据、堆叠星系信号并保存结果。
+    Main function to load data, stack galaxy signals, and save the results.
 
-    此函数负责整个流程：加载星系目录和 HEALPix 地图，并行化堆叠过程，
-    组合结果，然后将堆叠后的像素和值保存到 HDF5 文件中。
+    This function orchestrates the entire process: loading the galaxy catalog and HEALPix map, parallelizing the stacking process,
+    combining the results, and then saving the stacked pixels and values to an HDF5 file.
 
-    参数:
-    - cat_path (str): 包含星系目录的 HDF5 文件路径。
-    - map_path (str): 包含稀疏 HEALPix 地图的 HDF5 文件路径。
-    - map_keys (dict, optional): 用于加载地图数据的键字典。
-    - cat_keys (dict, optional): 用于加载目录数据的键字典。
-    - nworker (int, optional): 用于并行化的工作进程数。 默认为4。
-    - radius_deg (float, optional): 用于堆叠的角半径，单位为度。默认为1。
-    - nfreq (int, optional): 要平均的相邻频率数量。默认为None。
-    - lon0 (float, optional): 堆叠的参考经度。默认为90。
-    - lat0 (float, optional): 堆叠的参考纬度。默认为0。
-    - ouput_path (str, optional): 保存输出 HDF5 文件的路径。
-                                  如果为None，则会自动生成一个默认路径。
+    Parameters:
+    - cat_path (str): The path to the HDF5 file containing the galaxy catalog.
+    - map_path (str): The path to the HDF5 file containing the sparse HEALPix map.
+    - map_keys (dict, optional): A dictionary of keys for loading map data.
+    - cat_keys (dict, optional): A dictionary of keys for loading catalog data.
+    - nworker (int, optional): The number of worker processes for parallelization. Defaults to 4.
+    - radius_deg (float, optional): The angular radius for stacking, in degrees. Defaults to 1.
+    - nfreq (int, optional): The number of adjacent frequencies to average. Defaults to None.
+    - lon0 (float, optional): The reference longitude for stacking. Defaults to 90.
+    - lat0 (float, optional): The reference latitude for stacking. Defaults to 0.
+    - ouput_path (str, optional): The path to save the output HDF5 file.
+                                  If None, a default path is automatically generated.
     """
-    catalog = load_catalog(cat_path, keys=cat_keys.get('keys', ["ra", "dec", "freq"]), cut=cat_keys.get('cut', None))
+    catalog = load_catalog(
+        cat_path,
+        keys=cat_keys.get("keys", ["ra", "dec", "freq"]),
+        cut=cat_keys.get("cut", None),
+    )
     nside, map_pix, map_value, freq_bins = load_map(map_path, **map_keys)
 
-    # 将星系目录分割成块以进行并行处理
+    # Split the galaxy catalog into chunks for parallel processing
     chunk_size = len(catalog) // nworker
     galaxy_chunks = [
         catalog[i : i + chunk_size] for i in range(0, len(catalog), chunk_size)
     ]
-    # 确保所有星系都包含在块中
+    # Ensure all galaxies are included in the chunks
     if len(catalog) % nworker != 0:
-        galaxy_chunks[-1].extend(catalog[-(len(catalog) % nworker):])
+        galaxy_chunks[-1].extend(catalog[-(len(catalog) % nworker) :])
 
-    # 并行处理星系堆叠
+    # Process galaxy stacking in parallel
     with Pool(nworker) as pool:
         results = pool.starmap(
             stack_healpix_map,
@@ -281,33 +292,37 @@ def main(
                 for chunk in galaxy_chunks
             ],
         )
-    
-    # 组合并行进程的结果
+
+    # Combine results from parallel processes
     all_results = [item for sublist in results for item in sublist]
     stack_map_pix, stack_map_value = get_stack_value(all_results)
-    
+
     if ouput_path is None:
         ouput_path = os.path.join(os.path.dirname(map_path), "auto_stack_result.h5")
 
     save_result(stack_map_pix, stack_map_value, ouput_path, nside)
     print(f"Stacked results saved to: {ouput_path}")
 
-# --- Entry Point ---
+
 if __name__ == "__main__":
-    # 从环境变量中读取参数
-    cat_path = os.getenv('CAT_PATH')
-    map_path = os.getenv('MAP_PATH')
+    # Read parameters from environment variables
+    cat_path = os.getenv("CAT_PATH")
+    map_path = os.getenv("MAP_PATH")
 
     map_key_values_str = os.getenv("MAP_KEYS")
     map_key_names = ["key_pix", "key_value", "key_freq", "key_nside", "swap_axis"]
     if map_key_values_str is not None:
         try:
-            # 拆分并去除空格
-            map_key_values_list = [item.strip() for item in map_key_values_str.split(",")]
-            # 转换为字典
+            # Split and strip whitespace
+            map_key_values_list = [
+                item.strip() for item in map_key_values_str.split(",")
+            ]
+            # Convert to dictionary
             map_key_dict = {k: v for k, v in zip(map_key_names, map_key_values_list)}
         except Exception as e:
-            raise ValueError(f"Error parsing MAP_KEYS: {map_key_values_str} to {map_key_names}") from e
+            raise ValueError(
+                f"Error parsing MAP_KEYS: {map_key_values_str} to {map_key_names}"
+            ) from e
     else:
         map_key_dict = dict(
             key_pix="map_pix",
@@ -317,28 +332,28 @@ if __name__ == "__main__":
             swap_axis=False,
         )
 
-    cut = os.getenv('CUT')
+    cut = os.getenv("CUT")
     if cut is not None:
-        cat_keys={'keys':["ra", "dec", "freq"],'cut': int(cut)}
+        cat_keys = {"keys": ["ra", "dec", "freq"], "cut": int(cut)}
     else:
-        cat_keys={'keys':["ra", "dec", "freq"]}
+        cat_keys = {"keys": ["ra", "dec", "freq"]}
 
-    radius_deg = float(os.getenv('R_DEG', 1.0))
-    nfreq = int(os.getenv('NFREQ', -1)) # -1 表示不进行频率平均
-    lon0 = float(os.getenv('LON0', 90.0))
-    lat0 = float(os.getenv('LAT0', 0.0))
-    out_path = os.getenv('OUT_PATH')
-    nworker = int(os.getenv('NWORKER', 1))
+    radius_deg = float(os.getenv("R_DEG", 1.0))
+    nfreq = int(os.getenv("NFREQ", -1))  # -1 means no frequency averaging
+    lon0 = float(os.getenv("LON0", 90.0))
+    lat0 = float(os.getenv("LAT0", 0.0))
+    out_path = os.getenv("OUT_PATH")
+    nworker = int(os.getenv("NWORKER", 1))
     print(f"Using {nworker} workers for parallel processing.")
 
-    # 对必需的路径进行基本验证
+    # Basic validation for required paths
     if not cat_path or not map_path:
-        raise ValueError("请设置 CAT_PATH 和 MAP_PATH 环境变量。")
-    
-    # 如果未提供或设置为非正值，则将 nfreq 设置为 None
+        raise ValueError("Please set the CAT_PATH and MAP_PATH environment variables.")
+
+    # If not provided or set to a non-positive value, set nfreq to None
     nfreq = nfreq if nfreq > 0 else None
 
-    # 调用主函数
+    # Call the main function
     main(
         cat_path,
         map_path,
@@ -349,5 +364,5 @@ if __name__ == "__main__":
         nfreq=nfreq,
         lon0=lon0,
         lat0=lat0,
-        ouput_path=out_path
+        ouput_path=out_path,
     )

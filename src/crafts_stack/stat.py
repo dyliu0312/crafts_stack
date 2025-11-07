@@ -7,17 +7,17 @@ def calculate_signal_background_stats(
     data: List[np.ndarray], mask: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    计算信号和背景区域的统计量
+    Calculate statistics for signal and background regions.
 
-    参数:
-        data: 输入数据列表
-        mask: 布尔掩码
+    Parameters:
+        data: List of input data arrays.
+        mask: Boolean mask.
 
-    返回:
-        signal_means: 信号均值列表
-        signal_stds: 信号标准差列表
-        background_means: 背景均值列表
-        background_stds: 背景标准差列表
+    Returns:
+        signal_means: List of signal means.
+        signal_stds: List of signal standard deviations.
+        background_means: List of background means.
+        background_stds: List of background standard deviations.
     """
 
     signal_means = []
@@ -27,14 +27,16 @@ def calculate_signal_background_stats(
 
     for arr in data:
         if arr.shape != mask.shape:
-            raise ValueError(f"数据形状 {arr.shape} 与mask形状 {mask.shape} 不匹配")
+            raise ValueError(
+                f"Data shape {arr.shape} does not match mask shape {mask.shape}"
+            )
 
-        # 计算信号统计量
+        # Calculate signal statistics
         signal_data = arr[mask]
         signal_means.append(np.mean(signal_data))
         signal_stds.append(np.std(signal_data))
 
-        # 计算背景统计量
+        # Calculate background statistics
         background_data = arr[~mask]
         background_means.append(np.mean(background_data))
         background_stds.append(np.std(background_data))

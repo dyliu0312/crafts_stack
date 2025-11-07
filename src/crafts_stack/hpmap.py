@@ -4,7 +4,7 @@ Assuming **RING** order**
 """
 
 from collections.abc import Iterable
-from typing import List, Tuple, Union, Optional
+from typing import List, Optional, Tuple, Union
 
 import h5py as h5
 import healpy as hp
@@ -32,16 +32,17 @@ def gen_random_hpmap(nside: int, seed: int = 42) -> np.ma.MaskedArray:
     healpix_map = np.random.rand(npix)
     return hp.ma(healpix_map)
 
+
 def cut_hpmap(
-    nside: int, 
-    pixels: Optional[Iterable[int]] = None, 
+    nside: int,
+    pixels: Optional[Iterable[int]] = None,
     values: Union[Iterable[float], np.ndarray, np.ma.MaskedArray, None] = None,
-    ra_range: Optional[List[float]] = None, 
+    ra_range: Optional[List[float]] = None,
     dec_range: Optional[List[float]] = None,
-    freq_first: bool = False
+    freq_first: bool = False,
 ):
     if pixels is None:
-        pixels = np.arange(hp.nside2npix(nside)) 
+        pixels = np.arange(hp.nside2npix(nside))
     else:
         pixels = np.array(pixels)
 
@@ -56,7 +57,7 @@ def cut_hpmap(
         else:
             dec_mask = np.ones_like(lat, dtype=bool)
 
-        mask  = ra_mask & dec_mask
+        mask = ra_mask & dec_mask
 
         pixels = pixels[mask]
 
@@ -70,15 +71,18 @@ def cut_hpmap(
                     if freq_first:
                         values = values_arr[:, mask]
                     else:
-                        values = values_arr[mask,:]
+                        values = values_arr[mask, :]
                 else:
                     raise ValueError(f"values must be 1D or 2D. Got {values_arr.ndim}D")
             except (ValueError, TypeError, IndexError) as e:
-                raise ValueError(f"values must be an array-like object. Got {type(values)}") from e
-            
+                raise ValueError(
+                    f"values must be an array-like object. Got {type(values)}"
+                ) from e
+
             return pixels, values
 
     return pixels
+
 
 def build_hpmap(
     nside: int, pixels: np.ndarray, values: np.ndarray
@@ -192,7 +196,9 @@ def extract_hpmap_slice(
 
         if isinstance(key_value, str):
             healpix_map = build_hpmap(
-                nside, map_pix, _extract_slice(f[key_value]) # type: ignore
+                nside,
+                map_pix,
+                _extract_slice(f[key_value]),  # type: ignore
             )
 
         elif isinstance(key_value, (list, tuple)):
@@ -214,7 +220,11 @@ def extract_hpmap_slice(
 
 
 def get_map_center_range(
-    nside: int, map_pix: np.ndarray, nest: bool = False, lat_offset: List[float] = [-5, 15], lon_offset: List[float] = [0, 0]
+    nside: int,
+    map_pix: np.ndarray,
+    nest: bool = False,
+    lat_offset: List[float] = [-5, 15],
+    lon_offset: List[float] = [0, 0],
 ) -> Tuple[List[float], List[float], List[float]]:
     """
     Compute the approximate center and coordinate ranges of a Healpix map.
@@ -269,6 +279,7 @@ def get_map_center_range(
 
     return rot, lonra, latra
 
+
 def shift_pixel_to_target(nside, src_pix, original_field=(0, 0), new_field=(90, 0)):
     """
     Shift the spherical coordinates of the source pixel to a new field center.
@@ -279,44 +290,48 @@ def shift_pixel_to_target(nside, src_pix, original_field=(0, 0), new_field=(90, 
     :param new_field: Tuple (longitude, latitude) of the new field center, default (90, 0) degrees.
     :return: New pixel index after shifting.
     """
- 
+
     src_lon, src_lat = hp.pix2ang(nside, src_pix, lonlat=True)
-    
-    # 计算相对偏移（平移量）
-    delta_lon =  original_field[0] - new_field[0]
-    delta_lat =  original_field[1] - new_field[1]
-    
+
+    # Calculate the relative offset (translation)
+    delta_lon = original_field[0] - new_field[0]
+    delta_lat = original_field[1] - new_field[1]
+
     new_lon = src_lon - delta_lon
     new_lat = src_lat - delta_lat
-    # 确保新的经纬度在有效范围内, # 经度范围 [0, 360), 纬度范围 [-90, 90)
+    # Ensure the new longitude and latitude are within the valid range
+    # Longitude range [0, 360), Latitude range [-90, 90)
     # print(new_lon, new_lat)
     new_lon = new_lon % 360
-    new_lat[new_lat > 90]  -= 180
+    new_lat[new_lat > 90] -= 180
     new_lat[new_lat < -90] += 180
     # print(new_lon, new_lat)
-    # 将新的球面坐标转换为像素索引
+    # Convert the new spherical coordinates to a pixel index
     new_pix = hp.ang2pix(nside, new_lon, new_lat, lonlat=True)
-    
+
     return new_pix
+
 
 def find_pixels_within_radius(nside, ra, dec, radius_deg):
     """
-    在指定半径内找到 HEALPix 像素。
+    Find HEALPix pixels within a specified radius.
 
-    此函数使用 `healpy.query_disc` 高效地找到从指定天空点开始、在给定角半径内的所有像素索引。
+    This function uses `healpy.query_disc` to efficiently find all pixel indices
+    within a given angular radius from a specified sky point.
 
-    参数:
-    - nside (int): HEALPix nside 参数，确定分辨率。
-    - ra (float): 中心点的赤经（RA），单位为度。
-    - dec (float): 中心点的赤纬（Dec），单位为度。
-    - radius_deg (float): 角半径，单位为度。
+    Parameters:
+    - nside (int): HEALPix nside parameter, which determines the resolution.
+    - ra (float): Right ascension (RA) of the center point, in degrees.
+    - dec (float): Declination (Dec) of the center point, in degrees.
+    - radius_deg (float): Angular radius, in degrees.
 
-    返回:
-    - numpy.ndarray: 在指定半径内的像素索引数组。
+    Returns:
+    - numpy.ndarray: An array of pixel indices within the specified radius.
     """
     return hp.query_disc(
         nside, hp.ang2vec(ra, dec, lonlat=True), np.deg2rad(radius_deg), inclusive=True
     )
+
 
 def load_stack_map(
     path: str,
@@ -348,7 +363,7 @@ def load_stack_map(
     """
     # pixels, values, nside = read_h5(path, [key_pix, key_val, key_nside])
     with h5.File(path, "r") as f:
-        nside = int(f[key_nside][()]) # type: ignore
-        pixels = f[key_pix][()] # type: ignore
-        values = f[key_val][()] # type: ignore
-        return build_hpmap(nside, pixels, values) * unit_factor # type: ignore
+        nside = int(f[key_nside][()])  # type: ignore
+        pixels = f[key_pix][()]  # type: ignore
+        values = f[key_val][()]  # type: ignore
+        return build_hpmap(nside, pixels, values) * unit_factor  # type: ignore
