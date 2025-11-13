@@ -213,24 +213,24 @@ def build_model(
 
 
 def apply_prior(
-    model:Fittable2DModel,
+    model: Fittable2DModel,
     bounds: Optional[Dict[str, Tuple[Union[float, None], Union[float, None]]]] = None,
     constraints: Optional[Dict[str, Union[List[str], List[Tuple[str, str]]]]] = None,
-)-> Fittable2DModel:
+) -> Fittable2DModel:
     """
     Apply parameter bounds and constraints to a model.
 
     Parameters
     ----------
     model : astropy.modeling.Model
-        Model to apply bounds and constraints to    
+        Model to apply bounds and constraints to
     bounds : dict, optional
         Bounds for parameters in format {param_name: (min, max)}. By default None
     constraints : dict, optional
         Parameter constraints for the model, by default None. Currently supports:
         - "fixed": list of parameter names to fix
         - "tied": list of tuples (target_param, source_param) to tie parameters
-    
+
     Returns
     -------
     astropy.modeling.Model
@@ -256,3 +256,70 @@ def apply_prior(
                     getattr(model, target_param).tied = make_tie_func(source_param)
 
     return model
+
+
+def decompose_model(model: Fittable2DModel) -> List[Fittable2DModel]:
+    """
+    Decompose a compound model into a list of its constituent simple models.
+
+    This is useful for plotting the contribution of each component of a composite
+    model. For example, if a model is `A + B + C`, this function will return
+    a list containing the individual models `[A, B, C]`, with their parameters
+    set to the values from the compound model.
+
+    Parameters
+    ----------
+    model : astropy.modeling.Fittable2DModel
+        The compound model to decompose. Can be a simple model, in which case
+        a list containing just that model is returned.
+
+    Returns
+    -------
+    List[astropy.modeling.Fittable2DModel]
+        A list of simple models that make up the compound model.
+    """
+    # Using hasattr is a form of duck-typing and is robust against changes in
+    # the internal class structure of astropy. A compound model will have 'left'
+    # and 'right' attributes.
+    if not hasattr(model, "left"):
+        # It's a simple model
+        return [model]
+
+    sub_models = []
+
+    def _traverse(m):
+        if hasattr(m, "left"):
+            _traverse(m.left)
+            _traverse(m.right)
+        else:
+            sub_models.append(m)
+
+    _traverse(model)
+    return sub_models
+
+
+def get_submodel_contributions(
+    model: Fittable2DModel, x: np.ndarray, y: np.ndarray
+) -> List[np.ndarray]:
+    """
+    Decompose a model and evaluate the contribution of each sub-model.
+
+    This function first decomposes a compound model into its constituent parts
+    and then evaluates each sub-model on the given coordinate grid (x, y).
+
+    Parameters
+    ----------
+    model : astropy.modeling.Fittable2DModel
+        The (potentially compound) model to evaluate.
+    x, y : np.ndarray
+        The coordinate grids on which to evaluate the sub-models.
+
+    Returns
+    -------
+    List[np.ndarray]
+        A list of arrays, where each array is the contribution of a sub-model
+        evaluated on the input coordinates.
+    """
+    sub_models = decompose_model(model)
+    contributions = [sub_model(x, y) for sub_model in sub_models]
+    return contributions

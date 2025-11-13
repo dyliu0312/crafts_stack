@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 import numpy as np
 from astropy.modeling import Fittable2DModel, fitting
 from astropy.utils.exceptions import AstropyUserWarning
-from mytools.halo_new import get_coord, info_fitness
+from mytools.utils import get_coord, info_fitness
 
 from crafts_stack.halo_models import build_model
 
