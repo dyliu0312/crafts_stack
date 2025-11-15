@@ -10,7 +10,7 @@ from astropy.modeling import Fittable2DModel, fitting
 from astropy.utils.exceptions import AstropyUserWarning
 from mytools.utils import get_coord, info_fitness
 
-from crafts_stack.halo_models import build_model
+from crafts_stack.halo_models import build_model, get_default_model
 
 
 def gen_test_data(
@@ -66,8 +66,6 @@ def gen_test_data(
 def halofit(
     *args: np.ndarray,
     model: Optional[Fittable2DModel] = None,
-    halo_model: Literal["nfw", "gaussian", "lorentz"] = "nfw",
-    bg_model: Literal["const", "poly", None] = "const",
     mask: Optional[np.ndarray] = None,
     print_model: bool = True,
     **kwargs,
@@ -80,11 +78,8 @@ def halofit(
     args : tuple
         Either (data), ((x, y), data), or (x, y, data).
     model : astropy.modeling.models, optional
-        Model to use for fitting. If not provided, a default model will be generated based on the given `halo_model` and `bg_model`.
-    halo_model : str, optional
-        Name of the model to use for fitting. Default is "nfw".
-    bg_model : str, optional
-        Name of the background model to use, by default "const"
+        Model to use for fitting. \
+            If not provided, a default model will be generated using `get_default_model`.
     mask : np.ndarray, optional
         Mask to apply to the data before fitting.
     print_model : bool, optional
@@ -109,11 +104,8 @@ def halofit(
 
     # Build model if not provided
     if model is None:
-        model = build_model(halo_model, bg_model=bg_model)
-    if model is None:
-        raise ValueError(
-            "Failed to build model with model_name: {model_name}, background_name: {background_name}"
-        )
+        print("Using default model:")
+        model = get_default_model()
 
     # Apply mask if available
     if mask is not None:
@@ -129,8 +121,7 @@ def halofit(
         fit_model = fitter(model, x_fit, y_fit, data_fit, **kwargs)
 
     if print_model:
-        if halo_model:
-            print(f"\nFitted double {halo_model.upper()} model:")
+        print("\nFitted model:")
         print(fit_model)
 
     # Compute fitted data and residuals
@@ -141,11 +132,12 @@ def halofit(
     return [data, fit_data, res], fit_model, fitter.fit_info
 
 
-def cov_to_err_map(
+def get_fitting_error(
     fit_model: Any,
-    fit_info: Dict[str, Any],
     x: np.ndarray,
     y: np.ndarray,
+    cov: Optional[np.ndarray] = None,
+    fit_info: Optional[Dict[str, Any]] = None,
     n_samples: int = 100,
     seed: int = 42,
 ) -> np.ndarray:
@@ -160,11 +152,12 @@ def cov_to_err_map(
     ----------
     fit_model : astropy.modeling.Model
         The fitted model.
-    fit_info : dict
-        The fit information dictionary returned by the fitter, which should
-        contain the parameter covariance matrix in 'param_cov'.
     x, y : np.ndarray
         The coordinates at which to evaluate the model.
+    cov : np.ndarray, optional
+        The covariance matrix. If not provided, it's extracted from 'fit_info'.
+    fit_info : dict, optional
+        The fit information dictionary returned by the fitter. Used if 'cov' is not provided.
     n_samples : int, optional
         The number of samples to draw for the Monte Carlo estimation, by default 100.
     seed : int, optional
@@ -175,16 +168,18 @@ def cov_to_err_map(
     np.ndarray
         The 2D error map.
     """
-
-    if "param_cov" not in fit_info or fit_info["param_cov"] is None:
-        warnings.warn("Covariance matrix not found in fit_info. Returning zeros.")
-
-        if x.shape != y.shape:
-            raise ValueError("x and y must have the same shape.")
-
-        return np.zeros(x.shape, dtype=float)
-
-    cov = fit_info["param_cov"]
+    if cov is None:
+        if fit_info and "param_cov" in fit_info and fit_info["param_cov"] is not None:
+            cov = fit_info["param_cov"]
+        else:
+            warnings.warn(
+                "Covariance matrix not provided and not found in fit_info. Returning zeros."
+            )
+            if x.shape != y.shape:
+                raise ValueError("x and y must have the same shape.")
+            return np.zeros(x.shape, dtype=float)
+    if cov is None:
+        raise ValueError("Covariance matrix can not be None.")
 
     # Identify free (non-fixed and non-tied) parameters
     free_mask = np.array(

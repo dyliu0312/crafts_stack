@@ -3,7 +3,7 @@ Analytical models for the halo fitting.
 
 This module contains the definitions of the analytical models, implemented as classes that inherit from `astropy.modeling.Fittable2DModel`.
 Currently included signal models are:
-- `NFW2D`: Elliptical 2D NFW profile.
+- `NFW2D`: 2D NFW profile.
 - `Lorentz2D`: Elliptical 2D Lorentzian profile.
 - `Gaussian2D`: 2D Gaussian profile.
 
@@ -20,7 +20,7 @@ from astropy.modeling import Fittable2DModel, Parameter, models
 
 class NFW2D(Fittable2DModel):
     r"""
-    Elliptical 2D NFW profile.
+    2D NFW profile.
 
     $$\rho(r) = \frac{\rho_0}{\frac{r}{R_s} \left( 1 + \frac{r}{R_s} \right)^2}$$
     """
@@ -29,29 +29,18 @@ class NFW2D(Fittable2DModel):
     x_mean = Parameter(default=0.0)  # x center position
     y_mean = Parameter(default=0.0)  # y center position
     r_s = Parameter(default=1.0, min=0.1)  # scale radius
-    ellipticity = Parameter(default=0.0, min=0, max=0.9)  # 1 - b/a
-    theta = Parameter(default=0.0)  # position angle in radians
 
     @staticmethod
-    def evaluate(x, y, amplitude, x_mean, y_mean, r_s, ellipticity, theta):
+    def evaluate(x, y, amplitude, x_mean, y_mean, r_s):
         """
         Evaluate the NFW density profile on 2D xy grid
         """
-        q = 1.0 - ellipticity
-        # Add a small epsilon to avoid division by zero for q=0 (ellipticity=1)
-        q = np.maximum(q, 1e-8)
-
-        cos_theta = np.cos(theta)
-        sin_theta = np.sin(theta)
         x_c = x - x_mean
         y_c = y - y_mean
 
-        x_rot = x_c * cos_theta + y_c * sin_theta
-        y_rot = -x_c * sin_theta + y_c * cos_theta
+        r = np.sqrt(x_c**2 + y_c**2)
 
-        r = np.sqrt(x_rot**2 + (y_rot / q) ** 2)
-
-        # Dimensionless radius, ensure it\'s not exactly zero
+        # Dimensionless radius, ensure it's not exactly zero
         x_val = np.maximum(r / r_s, 1e-8)
 
         # 3D NFW density formula
@@ -174,7 +163,7 @@ def build_model(
 
     # Set default initial parameters based on model type
     if halo_model == "nfw":
-        default_init = {"amplitude": 50, "r_s": 0.5, "ellipticity": 0, "theta": 0}
+        default_init = {"amplitude": 50, "r_s": 0.5}
     elif halo_model == "gaussian":
         default_init = {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
     elif halo_model == "lorentz":
@@ -254,6 +243,55 @@ def apply_prior(
                         return lambda m: getattr(m, source)
 
                     getattr(model, target_param).tied = make_tie_func(source_param)
+
+    return model
+
+
+def get_default_model(
+    print_model: bool = True,
+):
+    model = build_model("nfw") + build_model("gaussian", "const")
+
+    default_bounds = {
+        "amplitude_0": (0, 100),
+        "amplitude_1": (0, 100),
+        # "x_stddev_2": (0.1, None),
+        # "y_stddev_2": (0.1, None),
+        # "x_stddev_3": (0.1, None),
+        # "y_stddev_3": (0.1, None),
+    }
+
+    default_cons = {
+        "fixed": [
+            "x_mean_0",
+            "y_mean_0",
+            "x_mean_1",
+            "y_mean_1",
+            "x_mean_2",
+            "y_mean_2",
+            "x_mean_3",
+            "y_mean_3",
+        ],
+        # "tied": [("x_stddev_2", "y_stddev_2"), ("y_stddev_3", "y_stddev_3")],
+    }
+
+    model = apply_prior(model, default_bounds, default_cons)  # pyright: ignore[reportArgumentType]
+
+    if print_model:
+        print(model)
+
+        fixed_params = [k for k, v in model.fixed.items() if v is True]
+        print(f"Fixed parameters are: {fixed_params}")
+
+        tied_params = [k for k, v in model.tied.items() if v is not False]
+        print(f"Tied parameters are: {tied_params}")
+
+        bound_params = [
+            [k, v]
+            for k, v in model.bounds.items()
+            if v[0] is not None or v[1] is not None
+        ]
+        print(f"Paramters bounds are: {bound_params}")
 
     return model
 
