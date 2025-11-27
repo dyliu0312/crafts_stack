@@ -28,7 +28,7 @@ class NFW2D(Fittable2DModel):
     amplitude = Parameter(default=1.0, min=0)  # ρ₀ - characteristic density
     x_mean = Parameter(default=0.0)  # x center position
     y_mean = Parameter(default=0.0)  # y center position
-    r_s = Parameter(default=1.0, min=0.1)  # scale radius
+    r_s = Parameter(default=1.0, min=0.01)  # scale radius
 
     @staticmethod
     def evaluate(x, y, amplitude, x_mean, y_mean, r_s):
@@ -49,49 +49,11 @@ class NFW2D(Fittable2DModel):
         return density
 
 
-class Lorentz2D(Fittable2DModel):
-    r"""
-    Elliptical 2D Lorentzian profile.
-    """
-
-    amplitude = Parameter(default=1.0, min=0)
-    x_mean = Parameter(default=0.0)
-    y_mean = Parameter(default=0.0)
-    fwhm = Parameter(default=1.0, min=0.1)  # Full width at half maximum
-    ellipticity = Parameter(default=0.0, min=0, max=0.9)
-    theta = Parameter(default=0.0)
-
-    @staticmethod
-    def evaluate(x, y, amplitude, x_mean, y_mean, fwhm, ellipticity, theta):
-        """
-        Evaluate the Lorentzian profile on 2D xy grid
-        """
-        q = 1.0 - ellipticity
-        q = np.maximum(q, 1e-8)
-
-        cos_theta = np.cos(theta)
-        sin_theta = np.sin(theta)
-        x_c = x - x_mean
-        y_c = y - y_mean
-
-        x_rot = x_c * cos_theta + y_c * sin_theta
-        y_rot = -x_c * sin_theta + y_c * cos_theta
-
-        r_sq = x_rot**2 + (y_rot / q) ** 2
-
-        # gamma is HWHM
-        gamma = fwhm / 2.0
-
-        density = amplitude / (1 + r_sq / gamma**2)
-
-        return density
-
-
 # Dictionary of available models
 AVAILABLE_MODELS = {
     "nfw": NFW2D,
     "gaussian": models.Gaussian2D,
-    "lorentz": Lorentz2D,
+    "lorentz": models.Lorentz2D,
 }
 
 
@@ -167,15 +129,24 @@ def build_model(
     elif halo_model == "gaussian":
         default_init = {"amplitude": 50, "x_stddev": 0.5, "y_stddev": 0.5, "theta": 0}
     elif halo_model == "lorentz":
-        default_init = {"amplitude": 50, "fwhm": 1.0, "ellipticity": 0, "theta": 0}
+        default_init = {
+            "amplitude": 50,
+            "fwhm": 1.0,
+        }
 
     h1_init = default_init.copy()
-    h1_init.update({"x_mean": -1, "y_mean": 0})
+    if halo_model == "lorentz":
+        h1_init.update({"x_0": -1, "y_0": 0})
+    else:
+        h1_init.update({"x_mean": -1, "y_mean": 0})
     if param_h1 is not None:
         h1_init.update(param_h1)  # pyright: ignore[reportArgumentType, reportCallIssue]
 
     h2_init = default_init.copy()
-    h2_init.update({"x_mean": 1, "y_mean": 0})
+    if halo_model == "lorentz":
+        h2_init.update({"x_0": 1, "y_0": 0})
+    else:
+        h2_init.update({"x_mean": 1, "y_mean": 0})
     if param_h2 is not None:
         h2_init.update(param_h2)  # pyright: ignore[reportArgumentType, reportCallIssue]
 
@@ -192,7 +163,7 @@ def build_model(
             if bg_model == "const":
                 param_bg = {"amplitude": 0}
             elif bg_model == "poly":
-                param_bg = {"degree": 1}
+                param_bg = {"degree": 2}
 
         bg = background_class(**param_bg)  # pyright: ignore[reportCallIssue]
 
@@ -253,12 +224,11 @@ def get_default_model(
     model = build_model("nfw") + build_model("gaussian", "const")
 
     default_bounds = {
-        "amplitude_0": (0, 100),
-        "amplitude_1": (0, 100),
-        # "x_stddev_2": (0.1, None),
-        # "y_stddev_2": (0.1, None),
-        # "x_stddev_3": (0.1, None),
-        # "y_stddev_3": (0.1, None),
+        "amplitude_0": (0, 500),
+        "amplitude_1": (0, 500),
+        "amplitude_2": (0, 500),
+        "amplitude_3": (0, 500),
+        "amplitude_4": (0, None),
     }
 
     default_cons = {
@@ -271,8 +241,15 @@ def get_default_model(
             "y_mean_2",
             "x_mean_3",
             "y_mean_3",
+            "theta_2",
+            "theta_3",
         ],
-        # "tied": [("x_stddev_2", "y_stddev_2"), ("y_stddev_3", "y_stddev_3")],
+        "tied": [
+            ("amplitude_0", "amplitude_1"),
+            ("amplitude_2", "amplitude_3"),
+            ("x_stddev_2", "y_stddev_2"),
+            ("x_stddev_3", "y_stddev_3"),
+        ],
     }
 
     model = apply_prior(model, default_bounds, default_cons)  # pyright: ignore[reportArgumentType]
