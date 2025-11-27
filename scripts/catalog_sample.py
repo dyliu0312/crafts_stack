@@ -1,195 +1,170 @@
 #!/usr/bin/env python3
 """
-Randomly sample galaxies from HDF5 catalog data while preserving data structure.
+Fast HDF5 Galaxy Catalog Sampler.
+Optimized: Loads individual datasets into RAM for fast slicing, then flushes to disk.
 """
 
+import argparse
 import os
+import sys
+import time
+from typing import Optional
+
 import h5py
 import numpy as np
-import sys
-from typing import Dict, Any
 
-def get_environment_variables() -> Dict[str, Any]:
-    """
-    Read configuration parameters from environment variables
-    """
-    config = {
-        'input_file': os.getenv('CATALOG_INPUT'),
-        'output_file': os.getenv('CATALOG_OUTPUT'),
-        'random_seed': os.getenv('RANDOM_SEED'),
-        'n_samples': os.getenv('N_SAMPLES')
-    }
-    
-    # Validate required parameters
-    if not config['input_file']:
-        raise ValueError("Environment variable CATALOG_INPUT is not set")
-    if not config['output_file']:
-        raise ValueError("Environment variable CATALOG_OUTPUT is not set")
-    if not config['n_samples']:
-        raise ValueError("Environment variable N_SAMPLES is not set")
-    
-    try:
-        config['n_samples'] = int(config['n_samples']) # type: ignore
-    except ValueError:
-        raise ValueError("Environment variable N_SAMPLES must be an integer")
-    
-    if config['random_seed']:
-        try:
-            config['random_seed'] = int(config['random_seed']) # type: ignore
-        except ValueError:
-            raise ValueError("Environment variable RANDOM_SEED must be an integer")
-    
-    return config
 
-def read_h5_structure(h5_file: h5py.File) -> Dict[str, Any]:
-    """
-    Read HDF5 file structure information
-    """
-    structure = {}
-    
-    def visit_func(name, node):
-        if isinstance(node, h5py.Dataset):
-            structure[name] = {
-                'shape': node.shape,
-                'dtype': node.dtype,
-                'size': node.size
-            }
-    
-    h5_file.visititems(visit_func)
-    return structure
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="HDF5 Galaxy Catalog Sampler (Fast RAM Mode)"
+    )
 
-def get_total_galaxies(h5_file: h5py.File) -> int:
-    """
-    Get total number of galaxies (assuming first dimension is galaxy count)
-    """
-    for name in h5_file.keys():
-        if isinstance(h5_file[name], h5py.Dataset):
-            return h5_file[name].shape[0] # type: ignore
-    raise ValueError("Cannot determine total galaxies: no valid datasets found")
+    parser.add_argument(
+        "--input",
+        "-i",
+        type=str,
+        default=os.getenv("CATALOG_INPUT"),
+        help="Input HDF5 file path",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default=os.getenv("CATALOG_OUTPUT"),
+        help="Output HDF5 file path",
+    )
+    parser.add_argument(
+        "--samples",
+        "-n",
+        type=int,
+        default=os.getenv("N_SAMPLES"),
+        help="Number of samples to extract",
+    )
+    parser.add_argument(
+        "--seed", "-s", type=int, default=os.getenv("RANDOM_SEED"), help="Random seed"
+    )
 
-def random_sample_galaxies(h5_file: h5py.File, n_samples: int, random_seed: int = None) -> Dict[str, np.ndarray]:
-    """
-    Randomly sample galaxy data
-    """
-    if random_seed is not None:
-        np.random.seed(random_seed)
-    
-    total_galaxies = get_total_galaxies(h5_file)
-    
-    if n_samples > total_galaxies:
-        print(f"Warning: Requested sample size {n_samples} exceeds total galaxies {total_galaxies}")
-        print(f"Will sample all {total_galaxies} galaxies")
-        n_samples = total_galaxies
-    
-    # Generate random indices
-    indices = np.random.choice(total_galaxies, size=n_samples, replace=False)
-    indices.sort()  # Maintain original order
-    
-    sampled_data = {}
-    
-    # Traverse all datasets and sample data at corresponding indices
-    def sample_datasets(name, node):
-        if isinstance(node, h5py.Dataset):
-            # Assume first dimension is galaxy index
-            if node.shape[0] == total_galaxies:
-                sampled_data[name] = node[indices]
-            else:
-                # If dimension doesn't match, copy entire dataset (e.g., constant data)
-                sampled_data[name] = node[()]
-    
-    h5_file.visititems(sample_datasets)
-    return sampled_data
+    args = parser.parse_args()
+    if not all([args.input, args.output, args.samples]):
+        parser.error("Arguments --input, --output, and --samples are required.")
+    return args
 
-def save_sampled_data(sampled_data: Dict[str, np.ndarray], output_file: str):
-    """
-    Save sampled data to new HDF5 file
-    """
-    with h5py.File(output_file, 'w') as f_out:
-        for dataset_name, data in sampled_data.items():
-            # Create dataset with same structure as original data
-            f_out.create_dataset(dataset_name, data=data, compression='gzip')
-    
-    print(f"Sampled data saved to: {output_file}")
 
-def list_datasets(input_file: str):
-    """
-    List all datasets in HDF5 file
-    """
-    if not os.path.exists(input_file):
-        raise FileNotFoundError(f"Input file does not exist: {input_file}")
-    
-    with h5py.File(input_file, 'r') as h5_in:
-        structure = read_h5_structure(h5_in)
-        total_galaxies = get_total_galaxies(h5_in)
-        
-        print(f"File: {input_file}")
-        print(f"Total galaxies: {total_galaxies}")
-        print("\nDataset list:")
-        for name, info in structure.items():
-            print(f"  {name}: {info['shape']} {info['dtype']}")
+def get_primary_dimension(h5_file: h5py.File) -> int:
+    """Finds the most common first-dimension size (galaxy count)."""
+    shapes = []
 
-def main():
-    """
-    Main function
-    """
-    try:
-        # Check if only listing datasets
-        if os.getenv('LIST_DATASETS'):
-            input_file = os.getenv('CATALOG_INPUT', '')
-            if not input_file:
-                raise ValueError("To list datasets, set CATALOG_INPUT environment variable")
-            list_datasets(input_file)
-            return
-        
-        # Get configuration parameters
-        config = get_environment_variables()
-        
-        input_file = config['input_file']
-        output_file = config['output_file']
-        n_samples = config['n_samples']
-        random_seed = config['random_seed']
-        
-        # Check if input file exists
-        if not os.path.exists(input_file):
-            raise FileNotFoundError(f"Input file does not exist: {input_file}")
-        
-        print("=== HDF5 Stellar Catalog Sampling Tool ===")
-        print(f"Input file: {input_file}")
-        print(f"Output file: {output_file}")
-        print(f"Sample size: {n_samples}")
-        print(f"Random seed: {random_seed}")
-        
-        # Open HDF5 file
-        with h5py.File(input_file, 'r') as h5_in:
-            total_galaxies = get_total_galaxies(h5_in)
-            print(f"Total galaxies: {total_galaxies}")
-            
-            # Perform random sampling
-            print("Randomly sampling galaxy data...")
-            sampled_data = random_sample_galaxies(h5_in, n_samples, random_seed)
-            
-            # Display sampling information
-            print(f"Successfully sampled {len(sampled_data)} datasets")
-            for name, data in sampled_data.items():
-                print(f"  {name}: {data.shape} {data.dtype}")
-        
-        # Save results
-        save_sampled_data(sampled_data, output_file)
-        
-        print("Operation completed successfully!")
-        
-    except Exception as e:
-        print(f"Error: {e}")
-        print("\nUsage instructions:")
-        print("1. Set required environment variables:")
-        print("   export CATALOG_INPUT=/path/to/input.h5")
-        print("   export CATALOG_OUTPUT=/path/to/output.h5")
-        print("   export N_SAMPLES=1000")
-        print("2. Optional environment variables:")
-        print("   export RANDOM_SEED=42  # Set random seed for reproducibility")
-        print("   export LIST_DATASETS=1  # Only list datasets and exit")
-        print("3. Run script: python sample_galaxies.py")
-        sys.exit(1)
+    def collect_shapes(name, node):
+        if isinstance(node, h5py.Dataset) and node.shape:
+            shapes.append(node.shape[0])
+
+    h5_file.visititems(collect_shapes)
+    if not shapes:
+        raise ValueError("No datasets found.")
+    return int(np.argmax(np.bincount(shapes)))
+
+
+def copy_attributes(source, dest):
+    """Copy HDF5 attributes/metadata."""
+    for k, v in source.attrs.items():
+        dest.attrs[k] = v
+
+
+def process_sampling(
+    input_path: str, output_path: str, n_samples: int, seed: Optional[int]
+):
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(f"Input not found: {input_path}")
+
+    # Performance timing
+    start_time = time.time()
+
+    with h5py.File(input_path, "r") as f_in:
+        total_galaxies = get_primary_dimension(f_in)
+
+        # Generate Indices
+        if n_samples >= total_galaxies:
+            print(f"Request {n_samples} >= Total {total_galaxies}. Copying all.")
+            indices = slice(None)  # Slice all
+            n_samples = total_galaxies
+        else:
+            if seed is not None:
+                np.random.seed(seed)
+            # Sorting indices is strictly faster for memory access
+            indices = np.sort(
+                np.random.choice(total_galaxies, size=n_samples, replace=False)
+            )
+
+        print(f"Input: {input_path}")
+        print(f"Sampling {n_samples} / {total_galaxies} items")
+
+        with h5py.File(output_path, "w") as f_out:
+            copy_attributes(f_in, f_out)
+
+            # We collect dataset names first to allow for a simple progress counter
+            dataset_names = []
+            f_in.visititems(
+                lambda name, node: dataset_names.append(name)
+                if isinstance(node, h5py.Dataset)
+                else None
+            )
+            total_dsets = len(dataset_names)
+
+            print(f"Processing {total_dsets} datasets...")
+
+            count = 0
+
+            def visitor_func(name, node):
+                nonlocal count
+
+                # Handle Groups
+                if isinstance(node, h5py.Group):
+                    if name not in f_out:
+                        g = f_out.create_group(name)
+                        copy_attributes(node, g)
+                    return
+
+                # Handle Datasets
+                if isinstance(node, h5py.Dataset):
+                    count += 1
+                    # Simple progress indicator
+                    if count % 10 == 0:
+                        sys.stdout.write(
+                            f"\rProgress: {count}/{total_dsets} datasets processed"
+                        )
+                        sys.stdout.flush()
+
+                    # Logic: Is this a galaxy-array or metadata?
+                    is_galaxy_array = node.shape and node.shape[0] == total_galaxies
+
+                    # --- FAST RAM LOADING ---
+                    # 1. Read the FULL dataset into memory (Sequential Read = Fast)
+                    # 2. Slice it in memory (Instant)
+                    if is_galaxy_array:
+                        # The [:] forces a read into a numpy array in RAM
+                        full_data = node[:]
+                        data_to_write = full_data[indices]
+                        del full_data  # Free RAM immediately
+                    else:
+                        # Static metadata, just copy
+                        data_to_write = node[()]
+
+                    # Write to output with compression
+                    dset = f_out.create_dataset(
+                        name, data=data_to_write, compression="gzip", compression_opts=4
+                    )
+                    copy_attributes(node, dset)
+
+            f_in.visititems(visitor_func)
+
+    print(f"\n\nDone! Saved to: {output_path}")
+    print(f"Time elapsed: {time.time() - start_time:.2f} seconds")
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        args = parse_arguments()
+        process_sampling(args.input, args.output, args.samples, args.seed)
+    except Exception as e:
+        print(f"\nError: {e}")
+        sys.exit(1)
