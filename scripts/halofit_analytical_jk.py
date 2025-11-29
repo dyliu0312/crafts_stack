@@ -77,7 +77,6 @@ def main(h5_inputs, h5_output, h5_weight, h5_weight_key, unit_factor):
                 model=model,
                 mask=fit_mask,
                 weights=weights[fit_mask],
-                print_model=False,
             )
 
             # jackknife
