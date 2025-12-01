@@ -1,9 +1,10 @@
 import os
 from itertools import product
-from typing import List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import h5py
 import numpy as np
+from numpy.typing import NDArray
 
 
 def get_filepath_format(base: str, pattern: str, *args) -> List[str]:
@@ -138,3 +139,136 @@ def load_stack_all_groups(
             sig_list.append(s)
     stack_sig = np.ma.mean(sig_list, axis=0)
     return stack_sig, sig_list
+
+
+def read_h5_data_with_mask(
+    file_path: str,
+    group_keys: Iterable[str],
+    dataset_keys: Union[str, List[str]] = ["stack", "fitted", "residual", "jk_std"],
+    mask_dataset_key: Optional[str] = "peak_mask",
+    fixed_mask_data: Optional[NDArray[np.bool_]] = None,
+) -> Dict[str, Dict[str, np.ma.MaskedArray]]:
+    """
+    Reads data from specified groups and datasets in an HDF5 file and applies masking.
+
+    This function iterates through the specified HDF5 groups, reads the corresponding
+    datasets, and applies a mask based on the following priority:
+    1. If `fixed_mask_data` is provided, it is used.
+    2. Otherwise, if `mask_dataset_key` exists in the HDF5 group, that dataset is used as the mask.
+    3. Otherwise, the data is not masked (mask=False).
+
+    Args:
+        file_path (str): Path to the input HDF5 file.
+        group_keys (Iterable[str]): The group keys (paths) to read data from.
+        dataset_keys (Union[str, List[str]]): The dataset key(s) (names) to read data from.
+            Defaults to ["stack", "fitted", "residual", "jk_std"].
+        mask_dataset_key (Optional[str], optional): The key inside each HDF5 group that
+            contains the mask data. If None, masking only occurs if `fixed_mask_data`
+            is supplied. Defaults to "peak_mask".
+        fixed_mask_data (Optional[NDArray[np.bool_]], optional): A fixed NumPy boolean array
+            to apply as a mask to all read datasets. If provided, it takes precedence over
+            `mask_dataset_key`.
+
+    Returns:
+        Dict(str, Dict[str, np.ma.MaskedArray]):
+            A nested dictionary where outer keys are **group names**, inner keys are
+            **dataset names**, and values are `numpy.ma.MaskedArray` containing the data.
+
+    Raises:
+        FileNotFoundError: If the `file_path` does not exist.
+
+    Examples:
+        Assume 'results.h5' is an HDF5 file containing groups 'Sample_A' and 'Sample_B'.
+        'Sample_A' contains datasets 'stack' and 'peak_mask'.
+        'Sample_B' contains only the dataset 'stack'.
+
+        Example 1: Using the default mask "peak_mask" from the HDF5 file (Priority 2):
+
+        >>> results_1 = read_hdf5_data_with_mask(
+        ...     file_path="results.h5",
+        ...     group_keys=["Sample_A", "Sample_B"],
+        ...     dataset_keys=["stack"]
+        ... )
+        >>> # The 'stack' data in 'Sample_A' will be masked by 'peak_mask' (if present).
+        >>> # The 'stack' data in 'Sample_B' will be unmasked (mask=False).
+        >>> print(results_1.keys())
+        dict_keys(['Sample_A', 'Sample_B'])
+
+        Example 2: Overriding with a fixed external mask (Priority 1):
+
+        >>> # Create a dummy fixed mask of the appropriate shape (e.g., a 2x5 array)
+        >>> fixed_mask = np.full((2, 5), True)
+        >>> results_2 = read_hdf5_data_with_mask(
+        ...     file_path="results.h5",
+        ...     group_keys=["Sample_A"],
+        ...     dataset_keys="stack",
+        ...     fixed_mask_data=fixed_mask # This mask is applied regardless of 'peak_mask' existence
+        ... )
+        >>> # The 'stack' data in 'Sample_A' will be masked entirely by 'fixed_mask_data'.
+        >>> print(results_2["Sample_A"]["stack"].mask.all())
+        True
+
+        Example 3: Reading multiple datasets:
+
+        >>> results_3 = read_hdf5_data_with_mask(
+        ...     file_path="results.h5",
+        ...     group_keys=["Sample_A"],
+        ...     dataset_keys=["stack", "fitted"] # Read both datasets
+        ... )
+        >>> print(results_3["Sample_A"].keys())
+        dict_keys(['stack', 'fitted'])
+    """
+    # Ensure dataset_keys is a list for iteration
+    if isinstance(dataset_keys, str):
+        dset_keys_list = [dataset_keys]
+    else:
+        dset_keys_list = dataset_keys
+
+    results: Dict[str, Dict[str, np.ma.MaskedArray]] = {}
+
+    try:
+        # Use h5py.File context manager to safely open and close the file
+        with h5py.File(file_path, "r") as hf:
+            for group_name in group_keys:
+                if group_name not in hf:
+                    print(
+                        f"Warning: Group not found in HDF5 file: '{group_name}', skipping."
+                    )
+                    continue
+
+                group = hf[group_name]
+                group_results: Dict[str, np.ma.MaskedArray] = {}
+
+                # Determine the mask data to be used based on priority
+                mask_data: Union[bool, NDArray]
+                if fixed_mask_data is not None:
+                    # Priority 1: Use the externally provided fixed mask
+                    mask_data = fixed_mask_data
+                elif mask_dataset_key is not None and mask_dataset_key in group:  # pyright: ignore[reportOperatorIssue]
+                    # Priority 2: Read the mask from the HDF5 group
+                    mask_data = group[mask_dataset_key][()]  # pyright: ignore[reportAssignmentType, reportIndexIssue]
+                else:
+                    # Priority 3: No mask applied (False indicates all data is valid)
+                    mask_data = False
+
+                for dataset_name in dset_keys_list:
+                    if dataset_name in group:  # pyright: ignore[reportOperatorIssue]
+                        # Read dataset data
+                        data = group[dataset_name][()]  # pyright: ignore[reportIndexIssue]
+
+                        # Create MaskedArray
+                        masked_data = np.ma.array(data, mask=mask_data)
+                        group_results[dataset_name] = masked_data
+                    else:
+                        print(
+                            f"Warning: Dataset '{dataset_name}' not found in group '{group_name}', skipping."
+                        )
+
+                if group_results:
+                    results[group_name] = group_results
+
+    except FileNotFoundError as e:
+        # Re-raise with a more informative message
+        raise FileNotFoundError(f"File not found: {file_path}") from e
+
+    return results
