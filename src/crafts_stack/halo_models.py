@@ -224,8 +224,8 @@ def get_default_model(
     model = build_model("nfw") + build_model("gaussian", "const")
 
     default_bounds = {
-        "amplitude_0": (0, 500),
-        "amplitude_1": (0, 500),
+        "amplitude_0": (0, None),
+        "amplitude_1": (0, None),
         "amplitude_2": (0, 500),
         "amplitude_3": (0, 500),
         "amplitude_4": (0, None),
