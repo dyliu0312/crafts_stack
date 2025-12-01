@@ -52,7 +52,7 @@ def main(h5_inputs, h5_output, h5_weight, h5_weight_key, unit_factor):
     # load weights
     weights = read_h5(h5_weight, h5_weight_key)
 
-    with h5py.File(h5_output, "w") as f:
+    with h5py.File(h5_output, "a") as f:
         for h5_input in h5_inputs:
             if not os.path.exists(h5_input):
                 print(f"File not found: {h5_input}, skipping.")

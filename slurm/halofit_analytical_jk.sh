@@ -62,3 +62,27 @@ python -u /work/home/liudy/mycode/stack/halofit_analytical_jk.py
 echo "------------------------fished--------------------------"
 
 date
+
+# signal loss of PCA cleaning
+name='tng_df120k'
+mode='0 5 10 15 20 25 30 35 40 45'
+xsize=3000
+nfs=10
+
+export PATTERN="{}_rmfg{}_pcaloss_xsize{}_nfs{}.h5"
+export ARGS="${name},${mode},${xsize},${nfs}"
+
+export UNIT_FACTOR="1e3" # mK to microK
+
+export BASE="/work/home/liudy/data/liudy/pair_stack_result/"
+
+export OUTPUT="/work/home/liudy/data/stack_result/galaxy_pair_stack/halofit_jk/tng_df120k_pcaloss_xsize3000_nfs10_mean_analytical_result.h5"
+
+export WEIGHT="/work/home/liudy/data/stack_result/galaxy_pair_stack/pixcount_xsize3000_nfs10.h5"
+export WEIGHT_KEY="tng_120k/weight"
+
+echo "Running data processing script..."
+python -u /work/home/liudy/mycode/stack/halofit_analytical_jk.py
+echo "------------------------fished--------------------------"
+
+date
