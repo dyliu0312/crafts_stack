@@ -129,13 +129,13 @@ class Measurement:
             # Display array representation (with truncation for large arrays)
             values_repr = np.array2string(
                 self.value,
-                max_line_width=np.inf, # type: ignore
-                edgeitems=2,  
+                max_line_width=np.inf,  # type: ignore
+                edgeitems=2,
             )
             errors_repr = np.array2string(
                 self.error,
-                max_line_width=np.inf, # type: ignore
-                edgeitems=2,  
+                max_line_width=np.inf,  # type: ignore
+                edgeitems=2,
             )
 
             return f"Values (size={self.value.size}): {values_repr}\nErrors (size={self.error.size}): {errors_repr}"

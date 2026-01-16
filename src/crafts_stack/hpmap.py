@@ -197,7 +197,7 @@ def extract_hpmap_slice(
         if isinstance(key_value, str):
             healpix_map = build_hpmap(
                 nside,
-                map_pix,
+                map_pix,  # pyright: ignore[reportArgumentType]
                 _extract_slice(f[key_value]),  # type: ignore
             )
 
