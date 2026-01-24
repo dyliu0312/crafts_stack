@@ -3,7 +3,7 @@ import os
 import h5py
 import numpy as np
 from mytools.data import read_h5
-from mytools.halo_new import halo_fit
+from mytools.halo_opt import halo_fit
 from mytools.utils import get_coord, get_mask_sector
 from tqdm import tqdm
 
