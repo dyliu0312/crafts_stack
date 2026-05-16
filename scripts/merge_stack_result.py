@@ -1,6 +1,6 @@
 import os
 
-from mytools.data import get_filename, get_stacked_result, h5
+from hifigps.data import get_filename, get_stacked_result, h5
 
 from crafts_stack.utils import get_filepath_format
 

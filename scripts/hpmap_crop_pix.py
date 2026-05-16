@@ -4,7 +4,7 @@ A script to select pixels of simulation build HEALPix map to mock mock observati
 import os
 import h5py as h5
 from crafts_stack.hpmap import shift_pixel_to_target
-from mytools.data import read_h5, save_h5, save_attrs
+from hifigps.data import read_h5, save_h5, save_attrs
 
 def find_positions(large_list, subset_list):
     """
