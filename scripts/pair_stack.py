@@ -10,17 +10,17 @@ from typing import List, Sequence  # pyright: ignore[reportDeprecated]
 
 import h5py as h5
 import numpy as np
-from mytools.bins import (  # type: ignore
+from hifigps.bins import (  # type: ignore
     get_ids_edge,
     set_resbins,
 )
-from mytools.data import (  # type: ignore
+from hifigps.data import (  # type: ignore
     is_exist,
     read_h5,
     save_h5,
     split_data_generator,
 )
-from mytools.stack import (  # type: ignore
+from hifigps.stack import (  # type: ignore
     cut_freq,
     hist_data_3d,
 )

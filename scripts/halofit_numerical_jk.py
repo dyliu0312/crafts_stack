@@ -2,9 +2,9 @@ import os
 
 import h5py
 import numpy as np
-from mytools.data import read_h5
-from mytools.halo_opt import halo_fit
-from mytools.utils import get_coord, get_mask_sector
+from hifigps.data import read_h5
+from hifigps.halo_opt import halo_fit
+from hifigps.utils import get_coord, get_mask_sector
 from tqdm import tqdm
 
 from crafts_stack.utils import get_filepath_format, load_stack_all_groups

@@ -12,7 +12,7 @@ import healpy as hp
 import numpy as np
 from astropy import units as u
 from astropy.cosmology import Planck18 as cosmo
-from mytools.constant import A_HI, C_BOL, C_PLK, HI_MASS, HI_REST_FREQ, LIGHT_SPEED
+from hifigps.constant import A_HI, C_BOL, C_PLK, HI_MASS, HI_REST_FREQ, LIGHT_SPEED
 from tqdm import tqdm
 
 # ------------------ Constants ------------------

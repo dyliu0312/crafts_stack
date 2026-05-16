@@ -11,8 +11,8 @@ from typing import Optional, Sequence
 import h5py as h5
 import numpy as np
 import pandas as pd
-from mytools.constant import HI_REST_FREQ
-from mytools.data import read_h5
+from hifigps.constant import HI_REST_FREQ
+from hifigps.data import read_h5
 
 
 def get_flag(file, keys=None, repeat: int = 1):

@@ -8,6 +8,6 @@ from galaxy_stack_hp import find_frequency_index, load_catalog
 import h5py as h5
 
 
-from mytools.bins import get_ids_edge
+from hifigps.bins import get_ids_edge
 
 

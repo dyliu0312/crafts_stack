@@ -1,6 +1,6 @@
 [project]
 name = "crafts-stack"
-version = "0.1.0"
+version = "0.1.1"
 description = "Tools for HI filament stacking with CRAFTS survey"
 readme = "README.md"
 authors = [

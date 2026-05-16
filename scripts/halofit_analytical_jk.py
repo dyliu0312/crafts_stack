@@ -2,8 +2,8 @@ import os
 
 import h5py
 import numpy as np
-from mytools.data import read_h5
-from mytools.utils import get_coord, get_mask_sector
+from hifigps.data import read_h5
+from hifigps.utils import get_coord, get_mask_sector
 from tqdm import tqdm
 
 from crafts_stack.halo_fitting import halofit
