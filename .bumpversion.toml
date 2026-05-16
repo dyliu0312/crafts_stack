@@ -1,0 +1,13 @@
+[tool.bumpv]
+commit = true
+tag = true
+
+[[tool.bumpv.files]]
+path = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpv.files]]
+path = "setup.cfg"
+search = "version = {current_version}"
+replace = "version = {new_version}"
