@@ -14,7 +14,7 @@ dependencies = [
     "matplotlib>=3.9.4",
     "hifigps",
     "numpy>=1.26.4",
-    "scipy>=1.15.0",
+    "scipy",
     "tqdm>=4.67.1",
 ]
 
